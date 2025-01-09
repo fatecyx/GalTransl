@@ -181,7 +181,7 @@ async def doLLMTranslSingleChunk(
                 try:
                     tran = plugin.plugin_object.before_src_processed(tran)
                 except Exception as e:
-                    LOGGER.error(f"插件 {plugin.name} 执行失败: {e}")
+                    LOGGER.exception(f"插件 {plugin.name} 执行失败: {e}")
 
             if projectConfig.getFilePlugin() in ["file_galtransl_json","file_mtbench_chrf"]:
                 tran.analyse_dialogue()
@@ -193,7 +193,7 @@ async def doLLMTranslSingleChunk(
                 try:
                     tran = plugin.plugin_object.after_src_processed(tran)
                 except Exception as e:
-                    LOGGER.error(f"插件 {plugin.name} 执行失败: {e}")
+                    LOGGER.exception(f"插件 {plugin.name} 执行失败: {e}")
 
         # 执行翻译
         await gptapi.batch_translate(
@@ -231,7 +231,7 @@ async def doLLMTranslSingleChunk(
                 try:
                     tran = plugin.plugin_object.before_dst_processed(tran)
                 except Exception as e:
-                    LOGGER.error(f" 插件 {plugin.name} 执行失败: {e}")
+                    LOGGER.exception(f" 插件 {plugin.name} 执行失败: {e}")
             tran.recover_dialogue_symbol()
             tran.post_zh = post_dic.do_replace(tran.post_zh, tran)
             if projectConfig.getDictCfgSection("usePostDictInName"):
@@ -250,7 +250,7 @@ async def doLLMTranslSingleChunk(
                 try:
                     tran = plugin.plugin_object.after_dst_processed(tran)
                 except Exception as e:
-                    LOGGER.error(f"插件 {plugin.name} 执行失败: {e}")
+                    LOGGER.exception(f"插件 {plugin.name} 执行失败: {e}")
 
         et = time()
         LOGGER.info(f"文件 {file_name}{part_info} 翻译完成，用时 {et-st:.3f}s.")

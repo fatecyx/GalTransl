@@ -87,7 +87,7 @@ Write the whole result jsonlines in the code block,
 In each line:
 1. Copy the value of `id` [NamePrompt3]directly from input to the output object.
 2. Follow the "Requirements" and "Glossary", translate the value of `src` to **[TargetLang]**.
-3. Del `src` then add `dst` (repalce src with dst), and fill in your translation result. [ConfRecord]
+3. Del `src` then add `dst` (replace src with dst), and fill in your translation result. [ConfRecord]
 Then stop, without any other explanations or notes.
 [Glossary]
 # jsonline-Input:

@@ -415,10 +415,13 @@ class CGptDict:
 
     def check_dic_use(self, find_from_str: str, tran: CSentense):
         problem_list = []
+        tmp_str = str(tran.post_jp)
         for dic in self._dic_list:
-            if dic.search_word not in tran.post_jp:
+            #if dic.search_word not in tran.post_jp:
+            #    continue
+            tmp_str = tmp_str.replace(dic.search_word, " ")
+            if dic.search_word not in tmp_str:
                 continue
-
             replace_word_list = (
                 dic.replace_word.split("/")
                 if "/" in dic.replace_word
