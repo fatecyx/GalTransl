@@ -317,6 +317,7 @@ class CGptDict:
         self._dic_list: List[CBasicDicElement] = []
         for dic_path in dic_list:
             self.load_dic(dic_path)  # 加载字典
+        self.sort_dic()
 
     def sort_dic(self):
         """
@@ -419,9 +420,9 @@ class CGptDict:
         for dic in self._dic_list:
             #if dic.search_word not in tran.post_jp:
             #    continue
-            tmp_str = tmp_str.replace(dic.search_word, " ")
             if dic.search_word not in tmp_str:
                 continue
+            tmp_str = tmp_str.replace(dic.search_word, " ")
             replace_word_list = (
                 dic.replace_word.split("/")
                 if "/" in dic.replace_word
