@@ -26,8 +26,8 @@ def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_save=F
     for tran in trans_list:
         if tran.post_jp == "": # 对齐get逻辑
             continue
-        if tran.pre_zh == "":
-            continue
+        # if tran.pre_zh == "":
+        #     continue
 
 
         cache_obj = {
@@ -36,16 +36,13 @@ def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_save=F
             "pre_jp": tran.pre_jp,
             "post_jp": tran.post_jp,
             "pre_zh": tran.pre_zh,
+            "proofread_zh": tran.proofread_zh,
+            "trans_by": tran.trans_by,
+            "proofread_by": tran.proofread_by
         }
-
-        cache_obj["proofread_zh"] = tran.proofread_zh
 
         if post_save and tran.problem != "":
             cache_obj["problem"] = tran.problem
-
-        cache_obj["trans_by"] = tran.trans_by
-        cache_obj["proofread_by"] = tran.proofread_by
-
         if tran.trans_conf != 0:
             cache_obj["trans_conf"] = tran.trans_conf
         if tran.doub_content != "":
