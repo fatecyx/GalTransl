@@ -385,56 +385,48 @@ class CGptDict:
         input_text = "\n".join(
             [f"{tran.speaker}:{tran.post_jp}" for tran in trans_list]
         )
-        if type == "gpt":
-            for i, dic in enumerate(self._dic_list):
-                prev_dic = self._dic_list[i - 1] if i > 0 else None
-                if prev_dic and dic.search_word in prev_dic.search_word:
-                    input_text = input_text.replace(prev_dic.search_word, "")
-                if dic.startswith_flag or dic.search_word in input_text:
-                    promt += f"| {dic.search_word} | {dic.replace_word} |"
-                    if dic.note != "":
-                        promt += f" {dic.note}"
-                    promt += " |\n"
+        tmp_str = str(input_text).lower()
+        for dic in self._dic_list:
+            word_search = dic.search_word.lower()
+            if word_search not in tmp_str:
+                continue
+            tmp_str = tmp_str.replace(word_search, " ")
+            if type == "gpt":
+                promt += f"| {dic.search_word} | {dic.replace_word} |"
+                if dic.note != "":
+                    promt += f" {dic.note}"
+                promt += " |\n"
+            elif type == "sakura":
+                promt += f"{dic.search_word}->{dic.replace_word}"
+                if dic.note != "":
+                    promt += f" #{dic.note}"
+                promt += "\n"
 
-            if promt != "":
-                promt = (
+        if type == "gpt" and promt != "":
+            promt = (
                     "# Glossary\n| Src | Dst(/Dst2/..) | Note |\n| --- | --- | --- |\n"
                     + promt
-                )
-        elif type == "sakura":
-            for i, dic in enumerate(self._dic_list):
-                prev_dic = self._dic_list[i - 1] if i > 0 else None
-                if prev_dic and dic.search_word in prev_dic.search_word:
-                    input_text = input_text.replace(prev_dic.search_word, "")
-                if dic.startswith_flag or dic.search_word in input_text:
-                    promt += f"{dic.search_word}->{dic.replace_word}"
-                    if dic.note != "":
-                        promt += f" #{dic.note}"
-                    promt += "\n"
+            )
 
         return promt
 
     def check_dic_use(self, find_from_str: str, tran: CSentense):
         problem_list = []
-        tmp_str = str(tran.post_jp)
+        tmp_str = str(tran.post_jp).lower()
         for dic in self._dic_list:
-            #if dic.search_word not in tran.post_jp:
-            #    continue
-            if dic.search_word not in tmp_str:
+            word_search = dic.search_word.lower()
+            if word_search not in tmp_str:
                 continue
-            tmp_str = tmp_str.replace(dic.search_word, " ")
-            replace_word_list = (
-                dic.replace_word.split("/")
-                if "/" in dic.replace_word
-                else [dic.replace_word]
-            )
+            tmp_str = tmp_str.replace(word_search, " ")
 
-            flag = False
-            for replace_word in replace_word_list:
-                if replace_word in find_from_str:
-                    flag = True
-                    break
+            if "/" in dic.replace_word:
+                replace_word_list = dic.replace_word.split("/")
+            else:
+                replace_word_list = [dic.replace_word]
 
+            flag = any(replace_word in find_from_str for replace_word in replace_word_list)
+            if f"#{dic.note}" in find_from_str:
+                problem_list.append(f"{dic.dic_name} {dic.note} 注释写入译文")
             if not flag:
                 problem_list.append(
                     f"{dic.dic_name} {dic.search_word} -> {dic.replace_word} 未使用"

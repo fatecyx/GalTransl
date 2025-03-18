@@ -43,6 +43,8 @@ class CSentense:
         self.prev_tran: CSentense = None  # 指向上一个tran
         self.next_tran: CSentense = None  # 指向下一个tran
 
+        self.plugin_used = {}
+
     @property
     def pre_jp(self):
         return self._pre_jp
