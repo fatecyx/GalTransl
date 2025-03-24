@@ -1,10 +1,10 @@
-import os, time, sys
+import os, time, sys, datetime
 from os.path import exists as isPathExists
 from os import makedirs as mkdir
 import logging, colorlog
 from GalTransl import LOGGER, TRANSLATOR_SUPPORTED, new_version, GALTRANSL_VERSION
 from GalTransl.GTPlugin import GTextPlugin, GFilePlugin
-from GalTransl.COpenAI import COpenAITokenPool,init_sakura_endpoint_queue
+from GalTransl.COpenAI import COpenAITokenPool, init_sakura_endpoint_queue
 from GalTransl.yapsy.PluginManager import PluginManager
 from GalTransl.ConfigHelper import CProjectConfig, CProxyPool
 from GalTransl.Frontend.LLMTranslate import doLLMTranslate
@@ -33,7 +33,7 @@ File_FORMAT = logging.Formatter(
 
 async def run_galtransl(cfg: CProjectConfig, translator: str):
     PROJECT_DIR = cfg.getProjectDir()
-    cfg.select_translator=translator
+    cfg.select_translator = translator
 
     def get_pluginInfo_path(name):
         if "(project_dir)" in name:
@@ -88,6 +88,20 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
         file_handler.setFormatter(File_FORMAT)
         LOGGER.addHandler(file_handler)
 
+    start_time_text = cfg.getCommonConfigSection().get("start_time", "")
+    if start_time_text:
+        LOGGER.info(f"翻译开始时间: {start_time_text}")
+        start_transl_time = datetime.datetime.strptime(start_time_text, "%H:%M")
+        while True:
+            now = datetime.datetime.now()
+            if (
+                now.hour == start_transl_time.hour
+                and now.minute == start_transl_time.minute
+            ):
+                LOGGER.info("开始时间已到，开始翻译...")
+                break
+            time.sleep(1)
+
     # 目录初始化
     for dir_path in [
         cfg.getInputPath(),
@@ -106,7 +120,7 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
     # 打印插件列表
     if translator == "show-plugs":
         print_plugin_list(plugin_manager)
-        return
+        return None
     new_candidates = []
     for tname in cfg.getTextPluginList():
         info_path = get_pluginInfo_path(tname)
@@ -159,14 +173,14 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
         LOGGER.warning("不使用代理")
 
     # OpenAITokenPool初始化
-    if "gpt" in translator:
+    if "gpt" in translator or "r1" in translator:
         OpenAITokenPool = COpenAITokenPool(cfg, translator)
         await OpenAITokenPool.checkTokenAvailablity(
             proxyPool.getProxy() if proxyPool else None, translator
         )
     else:
         OpenAITokenPool = None
-    
+
     # 初始化sakura端点队列
     if "sakura" in translator or "galtransl" in translator:
         sakura_endpoint_queue = await init_sakura_endpoint_queue(cfg)
@@ -184,7 +198,7 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
     if project_conf.get("splitFile", False):
         splitFileNum = int(project_conf.get("splitFileNum", -1))
         cross_num = int(project_conf.get("splitFileCrossNum", 0))
-        if "dump-name" in translator: # 提取人名表时不交叉
+        if "dump-name" in translator:  # 提取人名表时不交叉
             cross_num = 0
         if splitFileNum == -1:
             splitFileNum = int(project_conf.get("workersPerProject", -1))
@@ -202,7 +216,7 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
     else:
         input_splitter = EqualPartsSplitter(1)
         output_combiner = DictionaryCombiner()
-    
+
     cfg.tPlugins = text_plugins
     cfg.fPlugins = file_plugins
     cfg.tokenPool = OpenAITokenPool

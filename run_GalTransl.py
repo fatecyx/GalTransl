@@ -1,15 +1,11 @@
 import os
 import sys
-from command import BulletMenu
+
+# 基本配置，避免循环导入
 from GalTransl import (
-    AUTHOR,
     CONFIG_FILENAME,
-    CONTRIBUTORS,
-    GALTRANSL_VERSION,
     PROGRAM_SPLASH,
-    TRANSLATOR_SUPPORTED,
 )
-from GalTransl.__main__ import worker
 
 INPUT_PROMPT_TMP = "请输入/拖入项目文件夹，或项目文件夹内的yaml配置文件[default]："
 
@@ -21,21 +17,36 @@ class ProjectManager:
         self.config_file_name = CONFIG_FILENAME
         self.translator = ""
 
-    def validate_project_path(self, user_input):
-        user_input = os.path.abspath(user_input)
-        if user_input.endswith(".yaml"):
-            config_file_name = os.path.basename(user_input)
-            project_dir = os.path.dirname(user_input)
-        else:
-            config_file_name = CONFIG_FILENAME
-            project_dir = user_input
-
-        if not os.path.exists(os.path.join(project_dir, config_file_name)):
-            print(
-                f"{project_dir}文件夹内不存在配置文件{config_file_name}，请检查后重新输入\n"
-            )
+    def validate_project_path(self, user_input: str) -> tuple[str | None, str | None, str | None]:
+        if not user_input or not isinstance(user_input, str):
+            print("输入路径不能为空且必须是字符串类型\n")
             return None, None, None
-        return user_input, project_dir, config_file_name
+        try:
+            user_input = os.path.abspath(user_input)
+            if user_input.endswith(".yaml"):
+                config_file_name = os.path.basename(user_input)
+                project_dir = os.path.dirname(user_input)
+            else:
+                config_file_name = CONFIG_FILENAME
+                project_dir = user_input
+
+            if not os.path.exists(project_dir):
+                print(f"项目文件夹 {project_dir} 不存在，请检查后重新输入\n")
+                return None, None, None
+
+            config_path = os.path.join(project_dir, config_file_name)
+            if not os.path.exists(config_path):
+                print(f"配置文件 {config_path} 不存在，请检查后重新输入\n")
+                return None, None, None
+
+            if not os.path.isfile(config_path):
+                print(f"配置文件路径 {config_path} 不是一个有效的文件，请检查后重新输入\n")
+                return None, None, None
+
+            return user_input, project_dir, config_file_name
+        except Exception as e:
+            print(f"验证项目路径时发生错误: {str(e)}\n")
+            return None, None, None
 
     def get_user_input(self):
         while True:
@@ -58,12 +69,16 @@ class ProjectManager:
             return
 
     def print_program_info(self):
+        from GalTransl import GALTRANSL_VERSION, AUTHOR, CONTRIBUTORS
         print(PROGRAM_SPLASH)
         print(f"Ver: {GALTRANSL_VERSION}")
         print(f"Author: {AUTHOR}")
         print(f"Contributors: {CONTRIBUTORS}\n")
 
     def choose_translator(self):
+        from GalTransl import TRANSLATOR_SUPPORTED
+        from command import BulletMenu
+        
         default_choice = (
             list(TRANSLATOR_SUPPORTED.keys()).index(self.translator)
             if self.translator
@@ -77,20 +92,24 @@ class ProjectManager:
     def project_name(self):
         return self.project_dir.split(os.sep)[-1] if self.project_dir else ""
 
-    def create_shortcut_win(self):
-        TEMPLATE = '@echo off\nchcp 65001\nset "CURRENT_PATH=%CD%"\ncd /d "{0}"\n{1} "{2}" {3}\npause\ncd /d "%CURRENT_PATH%"'
-        run_com = "python.exe " + os.path.basename(__file__)
-        program_dir = os.path.dirname(os.path.abspath(__file__))
-        shortcut_path = f"{self.project_dir}{os.sep}run_GalTransl_v{GALTRANSL_VERSION}_{self.translator}.bat"
-        conf_path = "%CURRENT_PATH%\\" + self.config_file_name
-        if "nt" not in os.name:  # not windows
-            return
-        if getattr(sys, "frozen", False):  # PyInstaller
-            run_com = os.path.basename(sys.executable)
-            program_dir = os.path.dirname(sys.executable)
-        with open(shortcut_path, "w", encoding="utf-8") as f:
-            text = TEMPLATE.format(program_dir, run_com, conf_path, self.translator)
-            f.write(text)
+    def create_shortcut_win(self) -> None:
+        try:
+            from GalTransl import GALTRANSL_VERSION
+            TEMPLATE = '@echo off\nchcp 65001\nset "CURRENT_PATH=%CD%"\ncd /d "{0}"\n{1} "{2}" {3}\npause\ncd /d "%CURRENT_PATH%"'
+            run_com = "python.exe " + os.path.basename(__file__)
+            program_dir = os.path.dirname(os.path.abspath(__file__))
+            shortcut_path = f"{self.project_dir}{os.sep}run_GalTransl_v{GALTRANSL_VERSION}_{self.translator}.bat"
+            conf_path = "%CURRENT_PATH%\\" + self.config_file_name
+            if "nt" not in os.name:  # not windows
+                return
+            if getattr(sys, "frozen", False):  # PyInstaller
+                run_com = os.path.basename(sys.executable)
+                program_dir = os.path.dirname(sys.executable)
+            with open(shortcut_path, "w", encoding="utf-8") as f:
+                text = TEMPLATE.format(program_dir, run_com, conf_path, self.translator)
+                f.write(text)
+        except Exception as e:
+            print(f"创建快捷方式时发生错误: {str(e)}\n")
 
     def run(self):
         # 检查命令行参数
@@ -120,6 +139,7 @@ class ProjectManager:
                     return
             if self.translator not in ["show-plugs", "dump-name"]:
                 self.create_shortcut_win()
+            from GalTransl.__main__ import worker
             worker(
                 self.project_dir,
                 self.config_file_name,

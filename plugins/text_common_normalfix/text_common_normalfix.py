@@ -11,6 +11,9 @@ class text_common_normalfix(GTextPlugin):
         if tran.post_jp.endswith("　"):
             tran.post_jp = tran.post_jp[:-1]
             tran.right_symbol = "　" + tran.right_symbol
+        if tran.post_jp.endswith("\\n"):
+            tran.post_jp = tran.post_jp[:-2]
+            tran.right_symbol = "\\n" + tran.right_symbol
         return tran
 
     def after_src_processed(self, tran: CSentense) -> CSentense:

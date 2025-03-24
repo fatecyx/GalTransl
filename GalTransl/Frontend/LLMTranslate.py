@@ -12,9 +12,7 @@ from time import time
 import asyncio
 from dataclasses import dataclass
 from GalTransl import LOGGER
-from GalTransl.Backend.GPT3Translate import CGPT35Translate
 from GalTransl.Backend.GPT4Translate import CGPT4Translate
-from GalTransl.Backend.BingGPT4Translate import CBingGPT4Translate
 from GalTransl.Backend.SakuraTranslate import CSakuraTranslate
 from GalTransl.Backend.RebuildTranslate import CRebuildTranslate
 from GalTransl.ConfigHelper import initDictList, CProjectConfig
@@ -76,7 +74,14 @@ async def doLLMTranslate(
     file_list = get_file_list(projectConfig.getInputPath())
     if not file_list:
         raise RuntimeError(f"{projectConfig.getInputPath()}中没有待翻译的文件")
-
+    
+    # 按文件名自然排序（处理数字部分）
+    import re
+    def natural_sort_key(s):
+        return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
+    
+    file_list.sort(key=natural_sort_key)
+    
     # 读取所有文件获得total_chunks列表
     with ThreadPoolExecutor(max_workers=workersPerProject) as executor:
         future_to_file = {
@@ -107,17 +112,39 @@ async def doLLMTranslate(
         leave=False,
     )
 
-    async def run_task(task):
-        result = await task
-        progress_bar.update(1)
-        # progress_bar.set_postfix(
-        #     file=result[3].split(os_sep)[-1],
-        #     chunk=f"{result[4].start_index}-{result[4].end_index}",
-        # )
-        return result
+    async def run_task(task_func):
+        try:
+            result = await task_func
+            progress_bar.update(1)
+            # progress_bar.set_postfix(
+            #     file=result[3].split(os_sep)[-1],
+            #     chunk=f"{result[4].start_index}-{result[4].end_index}",
+            # )
+            return result
+        except Exception as e:
+            LOGGER.error(f"任务执行失败: {e}")
+            return None
 
+    # 按文件分组chunks，保持文件内部的顺序
+    file_chunks = {}
+    for chunk in total_chunks:
+        if chunk.file_path not in file_chunks:
+            file_chunks[chunk.file_path] = []
+        file_chunks[chunk.file_path].append(chunk)
+    
+    # 确保每个文件内的chunks按索引排序
+    for file_path in file_chunks:
+        file_chunks[file_path].sort(key=lambda x: x.chunk_index)
+    
+    # 按照file_list的顺序处理文件，保持文件间的顺序
+    ordered_chunks = []
+    for file_path in file_list:
+        if file_path in file_chunks:
+            ordered_chunks.extend(file_chunks[file_path])
+    
+    # 创建任务队列，保持顺序但允许并行执行
     all_tasks = []
-    for i, chunk in enumerate(total_chunks):
+    for chunk in ordered_chunks:
         task = run_task(
             doLLMTranslSingleChunk(
                 semaphore,
@@ -126,8 +153,19 @@ async def doLLMTranslate(
             )
         )
         all_tasks.append(task)
-
-    results = await asyncio.gather(*all_tasks)
+    
+    # 使用有序执行策略
+    # 将任务分成批次，每批次同时执行workersPerProject个任务
+    # 确保前一批次完成后再执行下一批次
+    batch_size = workersPerProject
+    for i in range(0, len(all_tasks), batch_size):
+        batch_tasks = all_tasks[i:i+batch_size]
+        batch_results = await asyncio.gather(*batch_tasks)
+        for result in batch_results:
+            if result is not None:
+                # 处理结果
+                pass
+    
     progress_bar.close()
 
 
@@ -330,16 +368,9 @@ async def init_gptapi(
     eng_type = projectConfig.select_translator
 
     match eng_type:
-        case "gpt35-0613" | "gpt35-1106" | "gpt35-0125":
-            return CGPT35Translate(projectConfig, eng_type, proxyPool, tokenPool)
-        case "gpt4" | "gpt4-turbo":
+        case "gpt4" | "gpt4-turbo" | "r1":
             return CGPT4Translate(projectConfig, eng_type, proxyPool, tokenPool)
-        case "newbing":
-            cookiePool: list[str] = []
-            for i in projectConfig.getBackendConfigSection("bingGPT4")["cookiePath"]:
-                cookiePool.append(joinpath(projectConfig.getProjectDir(), i))
-            return CBingGPT4Translate(projectConfig, cookiePool, proxyPool)
-        case "sakura-009" | "sakura-v1.0" | "galtransl-v2.5":
+        case "sakura-009" | "sakura-v1.0" | "galtransl-v2.5" | "galtransl-v3":
             sakura_endpoint = await sakuraEndpointQueue.get()
             if sakuraEndpointQueue is None:
                 raise ValueError(f"Endpoint is required for engine type {eng_type}")

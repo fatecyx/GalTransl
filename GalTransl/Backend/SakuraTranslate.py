@@ -18,6 +18,7 @@ from GalTransl.Backend.Prompts import (
     Sakura_SYSTEM_PROMPT010,
     GalTransl_SYSTEM_PROMPT,
     GalTransl_TRANS_PROMPT,
+    GalTransl_TRANS_PROMPT_V3
 )
 from GalTransl import transl_counter
 
@@ -106,6 +107,8 @@ class CSakuraTranslate(BaseTranslate):
         elif self.target_lang == "Traditional_Chinese":
             self.opencc = OpenCC("s2tw.json")
 
+        self.last_translation=""
+
         self.init_chatbot(eng_type=eng_type, config=config)  # 模型初始化
 
         pass
@@ -129,6 +132,9 @@ class CSakuraTranslate(BaseTranslate):
         if "galtransl" in eng_type:
             self.system_prompt = GalTransl_SYSTEM_PROMPT
             self.trans_prompt = GalTransl_TRANS_PROMPT
+        if "galtransl-v3" in eng_type:
+            self.system_prompt = GalTransl_SYSTEM_PROMPT
+            self.trans_prompt = GalTransl_TRANS_PROMPT_V3
         self.chatbot = ChatbotV3(
             api_key="sk-114514",
             system_prompt=self.system_prompt,
@@ -151,7 +157,7 @@ class CSakuraTranslate(BaseTranslate):
         max_repeat = 0
         line_lens = []
         for i, trans in enumerate(trans_list):
-            # 处理换行
+            # 处理换行 sakura旧模型
             if self.eng_type in ["sakura-009"]:
                 tmp_text = trans.post_jp.replace("\r\n", "↓↓").replace("\n", "↓↓")
             else:
@@ -203,6 +209,13 @@ class CSakuraTranslate(BaseTranslate):
         prompt_req = prompt_req.replace("[Input]", input_str)
         prompt_req = prompt_req.replace("[Glossary]", gptdict)
         prompt_req = prompt_req.replace("[tran_style]", self.transl_style)
+        if self.eng_type in ["galtransl-v3"]: # v3不使用多轮对话做上下文
+            self.reset_conversation()
+            history = ""
+            if self.last_translation:
+                history=f"历史翻译：{self.last_translation}\n"
+            prompt_req=prompt_req.replace("[History]", history)
+
 
         once_flag = False
 
@@ -246,9 +259,9 @@ class CSakuraTranslate(BaseTranslate):
                 await asyncio.sleep(3)
                 continue
 
-            resp = resp.replace("*EOF*", "").strip()
+            resp = resp.replace("*EOF*", "").strip() # galtransl v1.x 模型
             result_list = resp.strip("\n").split("\n")
-            # fix trick
+            # sakura旧模型 fix trick
             if result_list[0] == "——":
                 result_list.pop(0)
 
@@ -304,7 +317,7 @@ class CSakuraTranslate(BaseTranslate):
                 transl_counter["error_count"]+=1
                 LOGGER.debug(f"错误计数：{transl_counter['error_count']}")
                 LOGGER.debug(f"翻译句数：{transl_counter['tran_count']}")
-                LOGGER.debug(f"千句错误率：{transl_counter['error_count']/max(transl_counter['tran_count'],1)*1000:.2f}")
+                # LOGGER.debug(f"千句错误率：{transl_counter['error_count']/max(transl_counter['tran_count'],1)*1000:.2f}")
 
                 if self.skipRetry:
                     self.reset_conversation()
@@ -360,6 +373,7 @@ class CSakuraTranslate(BaseTranslate):
                 self.retry_count = 0
 
             self._set_temp_type("precise")
+            self.last_translation=resp
             return i + 1, result_trans_list
 
     async def batch_translate(
@@ -533,6 +547,7 @@ class CSakuraTranslate(BaseTranslate):
                 "content": f"{json_lines}",
             }
         )
+        self.last_translation = json_lines
         LOGGER.info("-> 恢复了上下文")
 
     def check_degen_in_process(self, cn: str = ""):
