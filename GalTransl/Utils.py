@@ -98,6 +98,8 @@ def contains_english(text: str) -> bool:
 def extract_code_blocks(content: str) -> Tuple[List[str], List[str]]:
     # 匹配带语言标签的代码块
     matches_with_lang = PATTERN_CODE_BLOCK.findall(content)
+
+    # 补全代码块的```结尾符
     if not matches_with_lang:
         matches_with_lang = PATTERN_CODE_BLOCK.findall(content + '\n```')
     # 提取所有匹配到的带语言标签的代码块
