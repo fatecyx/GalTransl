@@ -122,7 +122,7 @@ async def doLLMTranslate(
             # )
             return result
         except Exception as e:
-            LOGGER.error(f"任务执行失败: {e}")
+            LOGGER.exception(f"任务执行失败: {e}")
             return None
 
     # 按文件分组chunks，保持文件内部的顺序

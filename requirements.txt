@@ -1,3 +1,4 @@
+httpx < 0.28.0
 litellm
 opencc
 packaging
