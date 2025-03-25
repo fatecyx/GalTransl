@@ -51,11 +51,21 @@ def contains_japanese(text: str) -> bool:
 
     # 检查字符串中的每个字符
     for char in text:
-        # 黑名单
-        if char in ["ー", "・"]:
-            continue
+
         # 获取字符的 Unicode 码点
         code_point = ord(char)
+        # 黑名单
+        if (
+            (0xFF01 <= code_point <= 0xFF60) or  # 排除全角标点符号
+            (0x3000 <= code_point <= 0x303F) or  # 排除全角标点符号
+            (code_point in (0x309B,  # 排除濁点 ゛
+                            0x309C,  # 排除半濁点 ゜
+                            0x30FB,  # 排除中点 ・
+                            0x30FC,  # 排除長音符 ー
+                            )
+            )
+        ):
+            continue
         # 检查字符是否在日文字符范围内
         if (
             hiragana_range[0] <= code_point <= hiragana_range[1]

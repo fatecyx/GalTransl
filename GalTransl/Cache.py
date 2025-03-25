@@ -4,7 +4,6 @@
 
 from GalTransl.CSentense import CTransList
 from GalTransl import LOGGER
-from typing import List
 import orjson
 import os
 
