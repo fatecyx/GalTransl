@@ -12,8 +12,8 @@ from time import time
 import asyncio
 from dataclasses import dataclass
 from GalTransl import LOGGER
-from GalTransl.Backend.GPT4Translate import CGPT4Translate
-from GalTransl.Backend.SakuraTranslate import CSakuraTranslate
+
+
 from GalTransl.Backend.RebuildTranslate import CRebuildTranslate
 from GalTransl.ConfigHelper import initDictList, CProjectConfig
 from GalTransl.Dictionary import CGptDict, CNormalDic
@@ -155,16 +155,8 @@ async def doLLMTranslate(
         all_tasks.append(task)
     
     # 使用有序执行策略
-    # 将任务分成批次，每批次同时执行workersPerProject个任务
-    # 确保前一批次完成后再执行下一批次
-    batch_size = workersPerProject
-    for i in range(0, len(all_tasks), batch_size):
-        batch_tasks = all_tasks[i:i+batch_size]
-        batch_results = await asyncio.gather(*batch_tasks)
-        for result in batch_results:
-            if result is not None:
-                # 处理结果
-                pass
+    # 使用信号量控制并发数量，让任务在worker可用时立即执行
+    await asyncio.gather(*all_tasks)
     
     progress_bar.close()
 
@@ -368,9 +360,14 @@ async def init_gptapi(
     eng_type = projectConfig.select_translator
 
     match eng_type:
+        case "ForGal":
+            from GalTransl.Backend.ForGalTranslate import ForGalTranslate
+            return ForGalTranslate(projectConfig, eng_type, proxyPool, tokenPool)
         case "gpt4" | "gpt4-turbo" | "r1":
+            from GalTransl.Backend.GPT4Translate import CGPT4Translate
             return CGPT4Translate(projectConfig, eng_type, proxyPool, tokenPool)
         case "sakura-009" | "sakura-v1.0" | "galtransl-v2.5" | "galtransl-v3":
+            from GalTransl.Backend.SakuraTranslate import CSakuraTranslate
             sakura_endpoint = await sakuraEndpointQueue.get()
             if sakuraEndpointQueue is None:
                 raise ValueError(f"Endpoint is required for engine type {eng_type}")

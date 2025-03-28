@@ -2,7 +2,7 @@ import os, time, sys, datetime
 from os.path import exists as isPathExists
 from os import makedirs as mkdir
 import logging, colorlog
-from GalTransl import LOGGER, TRANSLATOR_SUPPORTED, new_version, GALTRANSL_VERSION
+from GalTransl import LOGGER, TRANSLATOR_SUPPORTED, new_version, GALTRANSL_VERSION,NEED_OpenAITokenPool
 from GalTransl.GTPlugin import GTextPlugin, GFilePlugin
 from GalTransl.COpenAI import COpenAITokenPool, init_sakura_endpoint_queue
 from GalTransl.yapsy.PluginManager import PluginManager
@@ -173,7 +173,7 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
         LOGGER.warning("不使用代理")
 
     # OpenAITokenPool初始化
-    if "gpt" in translator or "r1" in translator:
+    if any(x in translator for x in NEED_OpenAITokenPool):
         OpenAITokenPool = COpenAITokenPool(cfg, translator)
         await OpenAITokenPool.checkTokenAvailablity(
             proxyPool.getProxy() if proxyPool else None, translator

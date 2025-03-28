@@ -3,6 +3,7 @@ A simple wrapper for the official ChatGPT API
 """
 import json
 import os
+from importlib.metadata import version
 from importlib.resources import path
 from pathlib import Path
 from typing import AsyncGenerator
@@ -12,7 +13,6 @@ import requests
 import tiktoken
 
 from . import typings as t
-from .utils import get_filtered_keys_from_object
 
 
 class Chatbot:
@@ -32,21 +32,43 @@ class Chatbot:
                 "https": proxy,
             },
         )
+        
+        # 检查httpx版本
+        try:
+            httpx_version = version("httpx")
+            is_new_version = tuple(map(int, httpx_version.split('.'))) >= (0, 28, 0)
+        except:
+            is_new_version = False
+            
         if proxy := (
             proxy or os.environ.get("all_proxy") or os.environ.get("ALL_PROXY") or None
         ):
             if "socks5h" not in proxy:
+                if is_new_version:
+                    self.aclient = httpx.AsyncClient(
+                        follow_redirects=True,
+                        proxy=proxy,
+                        timeout=self.timeout,
+                    )
+                else:
+                    self.aclient = httpx.AsyncClient(
+                        follow_redirects=True,
+                        proxies=proxy,
+                        timeout=self.timeout,
+                    )
+        else:
+            if is_new_version:
+                self.aclient = httpx.AsyncClient(
+                    follow_redirects=True,
+                    proxy=proxy,
+                    timeout=self.timeout,
+                )
+            else:
                 self.aclient = httpx.AsyncClient(
                     follow_redirects=True,
                     proxies=proxy,
                     timeout=self.timeout,
                 )
-        else:
-            self.aclient = httpx.AsyncClient(
-                follow_redirects=True,
-                proxies=proxy,
-                timeout=self.timeout,
-            )
         pass
 
     def __init__(
@@ -380,60 +402,6 @@ class Chatbot:
             {"role": "system", "content": system_prompt or self.system_prompt},
         ]
 
-    def save(self, file: str, *keys: str) -> None:
-        """
-        Save the Chatbot configuration to a JSON file
-        """
-        with open(file, "w", encoding="utf-8") as f:
-            data = {
-                key: self.__dict__[key]
-                for key in get_filtered_keys_from_object(self, *keys)
-            }
-            # saves session.proxies dict as session
-            # leave this here for compatibility
-            data["session"] = data["proxy"]
-            del data["aclient"]
-            json.dump(
-                data,
-                f,
-                indent=2,
-            )
-
-    def load(self, file: Path, *keys_: str) -> None:
-        """
-        Load the Chatbot configuration from a JSON file
-        """
-        with open(file, encoding="utf-8") as f:
-            # load json, if session is in keys, load proxies
-            loaded_config = json.load(f)
-            keys = get_filtered_keys_from_object(self, *keys_)
-
-            if (
-                "session" in keys
-                and loaded_config["session"]
-                or "proxy" in keys
-                and loaded_config["proxy"]
-            ):
-                self.proxy = loaded_config.get("session", loaded_config["proxy"])
-                self.session = httpx.Client(
-                    follow_redirects=True,
-                    proxies=self.proxy,
-                    timeout=self.timeout,
-                    cookies=self.session.cookies,
-                    headers=self.session.headers,
-                )
-                self.aclient = httpx.AsyncClient(
-                    follow_redirects=True,
-                    proxies=self.proxy,
-                    timeout=self.timeout,
-                    cookies=self.session.cookies,
-                    headers=self.session.headers,
-                )
-            if "session" in keys:
-                keys.remove("session")
-            if "aclient" in keys:
-                keys.remove("aclient")
-            self.__dict__.update({key: loaded_config[key] for key in keys})
 
     def set_api_addr(self, new_api_addr: str) -> None:
         self.api_address = new_api_addr

@@ -1,10 +1,7 @@
-httpx < 0.28.0
-litellm
 opencc
+openai
 packaging
-prompt_toolkit
 PyYAML
-re_edge_gpt
 Requests
 tenacity
 tiktoken

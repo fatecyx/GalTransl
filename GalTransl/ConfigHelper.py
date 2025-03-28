@@ -18,6 +18,7 @@ from random import choice
 from yaml import safe_load
 from os import path, sep
 from enum import Enum
+from importlib.metadata import version
 
 
 class CProxy:
@@ -186,13 +187,29 @@ class CProxyPool:
         try:
             st = time()
             LOGGER.debug("start testing proxy %s", proxy.addr)
-            async with AsyncClient(proxies={"http://": proxy.addr}) as client:
-                response = await client.get(test_address)
-                if response.status_code != 204:
-                    LOGGER.debug("tested proxy %s failed (%s)", proxy.addr, response)
-                    return False, proxy
-                else:
-                    return True, proxy
+            # 检查httpx版本
+            try:
+                httpx_version = version("httpx")
+                is_new_version = tuple(map(int, httpx_version.split('.'))) >= (0, 28, 0)
+            except:
+                is_new_version = False
+                
+            if is_new_version:
+                async with AsyncClient(proxy={"http://": proxy.addr}) as client:
+                    response = await client.get(test_address)
+                    if response.status_code != 204:
+                        LOGGER.debug("tested proxy %s failed (%s)", proxy.addr, response)
+                        return False, proxy
+                    else:
+                        return True, proxy
+            else:
+                async with AsyncClient(proxies={"http://": proxy.addr}) as client:
+                    response = await client.get(test_address)
+                    if response.status_code != 204:
+                        LOGGER.debug("tested proxy %s failed (%s)", proxy.addr, response)
+                        return False, proxy
+                    else:
+                        return True, proxy
         except TimeoutException:
             LOGGER.debug("we got exception in testing proxy %s", proxy.addr)
             return False, proxy

@@ -86,7 +86,7 @@ class ProjectManager:
         )
         os.system("")  # 解决cmd的ANSI转义bug
         self.translator = BulletMenu(
-            f"请为『{self.project_name()}』项目选择翻译器：", TRANSLATOR_SUPPORTED
+            f"请为『{self.project_name()}』项目选择翻译模板：", TRANSLATOR_SUPPORTED
         ).run(default_choice)
 
     def project_name(self):
