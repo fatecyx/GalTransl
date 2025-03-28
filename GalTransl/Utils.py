@@ -62,6 +62,8 @@ def contains_japanese(text: str) -> bool:
                             0x309C,  # 排除半濁点 ゜
                             0x30FB,  # 排除中点 ・
                             0x30FC,  # 排除長音符 ー
+                            0x3063,  # 排除促音符っ
+                            0x30c3,  # 排除促音符ッ
                             )
             )
         ):
