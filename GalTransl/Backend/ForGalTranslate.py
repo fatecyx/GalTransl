@@ -252,10 +252,11 @@ class ForGalTranslate(BaseTranslate):
             result_trans_list = []
             error_flag = False
             error_message = ""
-            for line in result_text.split("\n"):
+
+            for line_index, line in enumerate(result_text.split("\n")):
                 line_sp=line.split("\t")
                 if len(line_sp)!=3:
-                    error_message = f"第{line}句不无法解析"
+                    error_message = f"第{line_index}句无法解析： {line}"
                     error_flag = True
                     break
                 if line_sp[0] == "ID":
