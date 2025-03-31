@@ -5,8 +5,8 @@ import sys
 from GalTransl import (
     CONFIG_FILENAME,
     PROGRAM_SPLASH,
+    TRANSLATOR_SUPPORTED
 )
-
 INPUT_PROMPT_TMP = "请输入/拖入项目文件夹，或项目文件夹内的yaml配置文件[default]："
 
 
@@ -76,7 +76,6 @@ class ProjectManager:
         print(f"Contributors: {CONTRIBUTORS}\n")
 
     def choose_translator(self):
-        from GalTransl import TRANSLATOR_SUPPORTED
         from command import BulletMenu
         
         default_choice = (

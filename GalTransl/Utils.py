@@ -156,6 +156,14 @@ def fix_quotes(text):
         text = text.replace(match, new_match)
     return text
 
+def fix_quotes2(text):
+    for i in range(text.count('"')):
+        if i % 2 == 0:
+            text = text.replace('"', "“", 1).replace(r'\“', "“", 1)
+        else:
+            text = text.replace('"', "”", 1).replace(r'\”', "”", 1)
+    return text
+
 
 def check_for_tool_updates(new_version):
     try:

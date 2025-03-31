@@ -1,4 +1,5 @@
 import json, time, asyncio, os, traceback, re
+from sys import exit,stdout
 from opencc import OpenCC
 from typing import Optional
 from GalTransl.COpenAI import COpenAITokenPool
@@ -8,6 +9,8 @@ from sys import exit
 from GalTransl.ConfigHelper import (
     CProjectConfig,
 )
+from tqdm.contrib.logging import logging_redirect_tqdm
+from tqdm.asyncio import tqdm as atqdm
 from random import choice
 from GalTransl.CSentense import CSentense, CTransList
 from GalTransl.Cache import get_transCache_from_json_new, save_transCache_to_json
@@ -234,9 +237,10 @@ class CGPT4Translate(BaseTranslate):
                         f"{self.token.domain}{base_path}/chat/completions"
                     )
                 # LOGGER.info("->输入：\n" + prompt_req + "\n")
-                LOGGER.info(
-                    f"->{'翻译输入' if not proofread else '校对输入'}：{gptdict}\n{input_json}\n"
-                )
+                with logging_redirect_tqdm(loggers=[LOGGER]):
+                    LOGGER.info(
+                        f"->{'翻译输入' if not proofread else '校对输入'}：{gptdict}\n{input_json}\n"
+                    )
                 if self.streamOutputMode:
                     LOGGER.info("->输出：")
                 resp, data = "", ""
@@ -478,6 +482,14 @@ class CGPT4Translate(BaseTranslate):
         trans_result_list = []
         len_trans_list = len(trans_list_unhit)
         transl_step_count = 0
+        progress_bar = atqdm(
+            total=len_trans_list,
+            desc=f"Translating {filename}",
+            unit="line",
+            dynamic_ncols=True,
+            leave=False,
+            file=stdout,
+        )
         while i < len_trans_list:
             await asyncio.sleep(1)
             trans_list_split = (
@@ -503,10 +515,12 @@ class CGPT4Translate(BaseTranslate):
             if transl_step_count >= self.save_steps:
                 save_transCache_to_json(trans_list, cache_file_path)
                 transl_step_count = 0
+            progress_bar.update(num)
             LOGGER.info(
                 f"{filename}: {str(len(trans_result_list))}/{str(len_trans_list)}"
             )
 
+        progress_bar.close()
         return trans_result_list
 
     def reset_conversation(self):

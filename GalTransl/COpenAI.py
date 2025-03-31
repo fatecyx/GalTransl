@@ -105,10 +105,10 @@ class COpenAITokenPool:
             )
             response = client.chat.completions.create(
                 model=model_name,
-                messages=[{"role": "user", "content": "Echo OK"}],
+                messages=[{"role": "user", "content": "JUST echo OK"}],
                 temperature=0.7,
                 max_tokens=100,
-                timeout=10,
+                timeout=30,
             )
 
             if not response.choices[0].message.content:
