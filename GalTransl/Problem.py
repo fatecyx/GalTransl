@@ -42,10 +42,16 @@ def find_problems(
                 problem_list.append(f"词频过高-'{most_word}'{str(word_count)}次")
         if CProblemType.标点错漏 in find_type:
             char_to_error = {
-                ("（", ")"): "括号",
+                ("(", ")"): "括号",
+                ("{", "}"): "括号",
+                ("（", "）"): "括号",
+                ("[", "]"): "括号",
                 "：": "冒号",
                 "*": "*号",
+                "#": "#号",
+                "|": "|号",
                 ("『", "「", "“"): "引号",
+                ("\\", "/"): "斜杠",
             }
 
             for chars, error in char_to_error.items():

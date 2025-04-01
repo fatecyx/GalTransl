@@ -152,7 +152,7 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
             LOGGER.info(f'加载插件"{plugin.name}"...')
             plugin.plugin_object.gtp_init(plugin_conf, project_conf)
         except Exception as e:
-            LOGGER.error(f'插件"{plugin.name}"加载失败: {e}')
+            LOGGER.exception(f'插件"{plugin.name}"加载失败: {e}')
             if plugin in text_plugins:
                 text_plugins.remove(plugin)
             elif plugin in file_plugins:
