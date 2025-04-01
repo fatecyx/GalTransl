@@ -1,0 +1,10 @@
+Core:
+  Name: livemaker_lns脚本检查
+  Type: text
+  Module: text_coder_livemakerlns
+
+Documentation:
+  Author: cyx
+  Version: 1.0
+  Description: livemaker_lns脚本检查
+

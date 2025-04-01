@@ -1,0 +1,9 @@
+Core:
+  Name: 尖括号脚本检查
+  Type: text
+  Module: text_coder_html
+
+Documentation:
+  Author: cyx
+  Version: 1.0
+  Description: 尖括号脚本检查

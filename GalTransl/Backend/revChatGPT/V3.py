@@ -206,7 +206,7 @@ class Chatbot:
             json={
                 "model": self.engine,
                 "messages": self.conversation[convo_id],
-                "stream": True,
+                "stream": False if 'sakura-share.one' in self.api_address else True,
                 # kwargs
                 "temperature": kwargs.get("temperature", self.temperature),
                 "top_p": kwargs.get("top_p", self.top_p),
@@ -286,7 +286,7 @@ class Chatbot:
             json={
                 "model": self.engine,
                 "messages": self.conversation[convo_id],
-                "stream": True,
+                #"stream": True,
                 # kwargs
                 "temperature": kwargs.get("temperature", self.temperature),
                 "top_p": kwargs.get("top_p", self.top_p),
@@ -317,18 +317,21 @@ class Chatbot:
                 if not line:
                     continue
                 # Remove "data: "
-                line = line[6:]
-                if line == "[DONE]":
-                    break
-                if "{" not in line:
-                    continue
-                if "flagged" in line and "403" in line:
-                    yield "输入被openrouter.ai标记为有害，考虑更换中转。"
+                if not line.startswith("{"):
+                    line = line[6:]
+                    if line == "[DONE]":
+                        break
+                    if "{" not in line:
+                        continue
+                    if "flagged" in line and "403" in line:
+                        yield "输入被openrouter.ai标记为有害，考虑更换中转。"
                 resp: dict = json.loads(line)
                 choices = resp.get("choices")
                 if not choices:
                     continue
                 delta: dict[str, str] = choices[0].get("delta")
+                if not delta:
+                    delta = choices[0].get('message')
                 if not delta:
                     continue
                 if "role" in delta:

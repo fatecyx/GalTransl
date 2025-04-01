@@ -1,0 +1,9 @@
+Core:
+  Name: 半角假名处理
+  Type: text
+  Module: text_normalize_katakana
+
+Documentation:
+  Author: cyx
+  Version: 1.0
+  Description: 将半角假名转换为全角，比如"ｻｷｭﾊﾞｽとﾄﾞﾗｺﾞﾝ"替换为"サキュバスとドラゴン"
