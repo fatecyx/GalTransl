@@ -73,9 +73,13 @@ def find_problems(
             if contains_japanese(pre_zh):
                 problem_list.append("残留日文")
         if CProblemType.丢失换行 in find_type:
+            if post_jp.count(lb_symbol) > pre_zh.count(lb_symbol):
+                problem_list.append("丢失换行(pre_zh)")
             if pre_jp.count(lb_symbol) > post_zh.count(lb_symbol):
                 problem_list.append("丢失换行")
         if CProblemType.多加换行 in find_type:
+            if post_jp.count(lb_symbol) < pre_zh.count(lb_symbol):
+                problem_list.append("多加换行(pre_zh)")
             if pre_jp.count(lb_symbol) < post_zh.count(lb_symbol):
                 problem_list.append("多加换行")
         if CProblemType.比日文长 in find_type:

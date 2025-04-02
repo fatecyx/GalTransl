@@ -1,0 +1,12 @@
+Core:
+  Name: 标点修复
+  Type: text
+  Module: text_common_punctuation_fixer
+
+Documentation:
+  Author: fatecyx
+  Version: 1.0
+  Description: 改编自neavo，标点修复器，在翻译完成后，检查译文中的标点符号是否与原文一致，并尝试修复不一致的标点符号
+
+Settings: # 这里存放插件的设置
+  source_cjk: True
