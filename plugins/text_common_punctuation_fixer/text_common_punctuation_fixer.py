@@ -5,6 +5,19 @@ from GalTransl import LOGGER
 from GalTransl.CSentense import CSentense
 from GalTransl.GTPlugin import GTextPlugin
 
+SYMBOL_PAIRS = {
+    "「": "」｣",
+    "｢": "｣」",
+    "『": "』",
+    "“": "”",
+    "（": "）)",
+    "(": "）)",
+    "【": "】",
+    "\"": "\"",
+}
+
+REVERSE_SYMBOLS = {r: left for left, rights in SYMBOL_PAIRS.items() for r in rights}
+
 
 class text_common_punctuation_fixer(GTextPlugin):
 
@@ -43,53 +56,81 @@ class text_common_punctuation_fixer(GTextPlugin):
         "$": ("＄",),
     }
 
-    SYMBOL_PAIRS = {
-        "「": "」｣",
-        "｢": "｣」",
-        "『": "』",
-        "“": "”",
-        "（": "）)",
-        "(": "）)",
-        "【": "】",
-        "\"": "\"",
-    }
-
     RE_YINHAO_STRING = re.compile(r"([\"'])([^\"'｢「」｣『』“”（()）【】]*?)\1")
     RE_LINEBREAK = re.compile(r'\n[ 　]*')
     def __init__(self) -> None:
         super().__init__()
 
-    # 检查并替换
     @classmethod
-    def fix(cls, src: str, dst: str, is_cjk: bool = True) -> tuple[str, set[str]]:
-        def get_symbol_pair(text):
-            if text[0] in cls.SYMBOL_PAIRS:
-                right_symbol = cls.SYMBOL_PAIRS[text[0]]
-                if text[-1] in right_symbol:
-                    return text[0], text[-1]
-            return None
+    def match_quote(cls, src, dst):
+        def is_matched_pair(left, right):
+            return left and left in SYMBOL_PAIRS and right and right in SYMBOL_PAIRS[left]
+
+        if not src or not dst:
+            return dst
+
+        # 识别 src 的引号
+        src_left = src[0] if src and src[0] in SYMBOL_PAIRS else ''
+        src_right = src[-1] if src and src[-1] in REVERSE_SYMBOLS else ''
+
+        # 识别 dst 的引号
+        dst_left = dst[0] if dst[0] in SYMBOL_PAIRS else ''
+        dst_right = dst[-1] if dst[-1] in REVERSE_SYMBOLS else ''
+
+        # 判断是否成对
+        src_has_pair = is_matched_pair(src_left, src_right)
+        dst_has_pair = is_matched_pair(dst_left, dst_right)
+
+        # 如果都没有成对引号，就不做处理
+        if not src_has_pair and not dst_has_pair:
+            return dst
+
+        dst_core = dst
+        # 去掉现有引号包裹
+        if dst_left and dst_right and dst_left in SYMBOL_PAIRS and dst_right in REVERSE_SYMBOLS:
+            if dst_right in SYMBOL_PAIRS[dst_left]:
+                dst_core = dst[1:-1]
+        elif dst_left and dst_left in SYMBOL_PAIRS:
+            dst_core = dst[1:]
+        elif dst_right and dst_right in REVERSE_SYMBOLS:
+            dst_core = dst[:-1]
+
+        # 情况1：src 有首尾引号对 → 套用 src 引号
+        if src_has_pair:
+            fixed_right = SYMBOL_PAIRS[src_left][0]
+            return src_left + dst_core + fixed_right
+
+        # 情况2：src 无引号，但 dst 有对 → 去掉 dst 引号
+        if not src_left and not src_right and dst_has_pair:
+            return dst_core
+
+        # 情况3：src 只有左引号，dst 有对 → 用 src 左引号 + core
+        if src_left and not src_right and dst_has_pair:
+            return src_left + dst_core
+
+        # 情况4：src 只有右引号，dst 有对 → 用 core + src 右引号
+        if not src_left and src_right and dst_has_pair:
+            return dst_core + src_right
+
+        return dst
+
+    def fix(self, src: str, dst: str, is_cjk: bool = True) -> tuple[str, set[str]]:
 
         # 去掉首尾错误的括号/引号
-        dst_symbol_pair = get_symbol_pair(dst)
-        if dst_symbol_pair is not None:
-            src_symbol_pair = get_symbol_pair(src)
-            if src_symbol_pair is None:
-                dst = dst[1:-1]
-            elif src_symbol_pair != dst_symbol_pair:
-                dst = f"{src_symbol_pair[0]}{dst[1:-1]}{src_symbol_pair[1]}"
-
-        dst, missing = cls.apply_fix_rules(src, dst, cls.RULE_SAME_COUNT)
+        dst = self.match_quote(src, dst)
 
         # 处理正则替换
-        if not cls.RE_YINHAO_STRING.search(src):
+        if not self.RE_YINHAO_STRING.search(src):
             symbols = '『』' if '「' in dst else '「」'
-            dst = cls.RE_YINHAO_STRING.sub(rf'{symbols[0]}\2{symbols[1]}', dst)
+            dst = self.RE_YINHAO_STRING.sub(rf'{symbols[0]}\2{symbols[1]}', dst)
         # 处理换行空格
-        src_linebreaks = cls.RE_LINEBREAK.findall(src)
+        src_linebreaks = self.RE_LINEBREAK.findall(src)
         if src_linebreaks:
             min_break = min(src_linebreaks, key=len)
             if len(min_break) > 1:
-                dst = cls.RE_LINEBREAK.sub(lambda m: m.group() if len(m.group()) >= len(min_break) else min_break, dst)
+                dst = self.RE_LINEBREAK.sub(lambda m: m.group() if len(m.group()) >= len(min_break) else min_break, dst)
+
+        dst, missing = self.apply_fix_rules(src, dst, self.RULE_SAME_COUNT)
 
         return dst, missing
 
@@ -112,15 +153,15 @@ class text_common_punctuation_fixer(GTextPlugin):
         return needs_fix, can_fix
 
     # 应用修复规则
-    @classmethod
-    def apply_fix_rules(cls, src: str, dst: str, rules: dict) -> tuple[str, set[str]]:
+    def apply_fix_rules(self, src: str, dst: str, rules: dict) -> tuple[str, set[str]]:
         missing = set()
         for key, value in rules.items():
-            need_repair, can_repair = cls.check(src, dst, key, value)
+            filtered_value = tuple([t for t in value if t not in src])
+            need_repair, can_repair = self.check(src, dst, key, filtered_value)
             if need_repair:
                 if can_repair:
-                    dst = cls.apply_replace_rules(dst, key, value)
-                else:
+                    dst = self.apply_replace_rules(dst, key, filtered_value)
+                elif self.检查数量一致:
                     missing.add(key)
         return dst, missing
 
@@ -138,9 +179,10 @@ class text_common_punctuation_fixer(GTextPlugin):
         settings = plugin_conf["Settings"]
 
         self.source_cjk = settings.get("source_cjk", True)
-
+        self.检查数量一致 = settings.get("检查数量一致", True)
         LOGGER.info(f"[{self.pname}] fixer_common_punctuation·启动！")
         LOGGER.info(f"[{self.pname}] source_cjk:{settings.get('source_cjk', True)}")
+        LOGGER.info(f"[{self.pname}] 检查数量一致:{settings.get('检查数量一致', True)}")
 
     def before_dst_processed(self, tran: CSentense) -> CSentense:
         tran.post_zh, missing = self.fix(tran.post_jp, tran.post_zh, self.source_cjk)
@@ -149,3 +191,21 @@ class text_common_punctuation_fixer(GTextPlugin):
                 tran.problem += ", "
             tran.problem += f"标点修复 {','.join([json.dumps(i, ensure_ascii=False)[1:-1] for i in missing])} 无法修复"
         return tran
+
+
+if __name__ == '__main__':
+    coder = text_common_punctuation_fixer()
+    coder.gtp_init({'Core': {}, 'Settings': {}}, {})
+    lines = {
+    #    "その艶やかな姿に\\N[3]の獣心がそそられた。\n\\N[3]は少女の動きに合わせて腰を突き上げはじめる。",
+        "「そして『龍』が『大厄災』を鎮めて平和を齎したとしても\n　今度はシオン教の云う『龍』の姿との違いに人々は疑問を\n　持つことになる……＠＠どちらにしても世界の混乱は必至という事ね":
+            "「即便『龙』平息『大灾厄』带来和平\n　人们又会质疑其形象与锡安教描述的差异……＠＠无论如何世界必将陷入混乱",
+    }
+    for post_jp, post_zh in lines.items():
+        s = CSentense(post_jp)
+        s.post_jp = post_jp
+        s.post_zh = post_zh
+        s = coder.before_dst_processed(s)
+        print('post_jp', s.post_jp)
+        print('post_zh', s.post_zh)
+        print(s.problem)

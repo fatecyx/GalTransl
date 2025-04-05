@@ -10,3 +10,4 @@ Documentation:
 
 Settings: # 这里存放插件的设置
   source_cjk: True
+  检查数量一致: True

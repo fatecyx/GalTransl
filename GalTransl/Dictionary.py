@@ -425,7 +425,7 @@ class CGptDict:
             else:
                 replace_word_list = [dic.replace_word]
 
-            flag = any(replace_word in find_from_str for replace_word in replace_word_list)
+            flag = any((replace_word in find_from_str or replace_word.lower() in find_from_str) for replace_word in replace_word_list)
             if dic.note and re.search(re.escape(rf"#\s*{dic.note}"), find_from_str):
                 problem_list.append(f"{dic.dic_name} {dic.search_word} 注释写入译文")
             if not flag:

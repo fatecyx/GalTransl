@@ -143,18 +143,24 @@ class text_coder_rpg(GTextPlugin):
     color_post_pattern = re.compile(r'\{color(\d+):\s?(.*?)\}', re.DOTALL|re.IGNORECASE)
     def preprocess_color_tags(self, text):
         # 正则匹配颜色标记（不区分大小写）
+        matches = list(self.color_pre_pattern.finditer(text))
+        # 如果匹配存在，并且全部都在字符串的首或尾，则直接返回原始文本
+        if matches and all(m.start() == 0 or m.end() == len(text) for m in matches):
+            return text
 
         parts = []
         current_color = None
+        first_color = True
         last_pos = 0
         current_tag = None
-        for match in self.color_pre_pattern.finditer(text):
+        for match in matches:
             start, end = match.span()
             # 提取当前颜色标记前的文本段
             content = text[last_pos:start]
             if content:
-                if current_color is not None and current_color != "0":
+                if current_color is not None and (current_color != "0" or first_color):
                     parts.append(f"{{color{current_color}: {content}}}")
+                    first_color = False
                 else:
                     parts.append(content)  # 无颜色标记时直接保留
             # 更新当前颜色和位置
@@ -173,7 +179,7 @@ class text_coder_rpg(GTextPlugin):
         #     parts.append(current_tag)
         return ''.join(parts)
 
-    def postprocess_color_tags(self, processed_text, original_processed):
+    def postprocess_color_tags(self, processed_text, original_processed, pre_jp):
 
         is_valid = True
         missing = []
@@ -202,6 +208,9 @@ class text_coder_rpg(GTextPlugin):
             final_parts.append(lst_split[i+1])
             if lst_split[i+2] or i+2 == len(lst_split)-1:
                 final_parts.append(f"\\c[0]{lst_split[i+2]}")
+        if final_parts[-1] == "\\c[0]":
+            if self.color_pre_pattern.findall(pre_jp)[-1] != "0":
+                final_parts.pop()
         final_text = "".join(final_parts)
 
         return final_text, missing
@@ -216,12 +225,11 @@ class text_coder_rpg(GTextPlugin):
 
         if self.主人公变量:
             tran.post_jp = tran.post_jp.replace(self.主人公变量, '主角')
+        pre_jp = self.preprocess_color_tags(tran.post_jp)
+        #print(pre_jp)
+        tran.plugin_used[self.pname]['split'] = self.split_text_para(pre_jp)
+        pre_jp = tran.plugin_used[self.pname]['split'][1]
         if self.替换rpg变量:
-            pre_jp = self.preprocess_color_tags(tran.post_jp)
-            #print(pre_jp)
-            tran.plugin_used[self.pname]['split'] = self.split_text_para(pre_jp)
-            pre_jp = tran.plugin_used[self.pname]['split'][1]
-
             # 替换剩余控制符
             for item in self.re_combined.findall(pre_jp):
                 if item.isspace():
@@ -270,17 +278,17 @@ class text_coder_rpg(GTextPlugin):
         :param tran: The CSentense to be processed.
         :return: The modified CSentense.
         """
+        tran_pre_jp = tran.plugin_used[self.pname]['src']
         problem_list = set()
         if tran.problem:
             problem_list.add(tran.problem)
+        s_head, s_middle, s_tail = tran.plugin_used[self.pname]['split']
+        tran.post_zh, missing = self.postprocess_color_tags(tran.post_zh, s_middle, tran_pre_jp)
+        problem_list.update(missing)
         if self.替换rpg变量:
-            s_head, s_middle, s_tail = tran.plugin_used[self.pname]['split']
-            tran.post_zh, missing = self.postprocess_color_tags(tran.post_zh, s_middle)
-            problem_list.update(missing)
-
             # 替换剩余控制符
             dic_values = {}
-            if '@' in tran.post_zh and '@' not in tran.pre_jp:
+            if '@' in tran.post_zh and '@' not in tran_pre_jp:
                 tran.post_zh = tran.post_zh.replace("@", "＠")
             lst_items = self.re_combined.findall(s_middle)
             for item in lst_items:
@@ -296,7 +304,7 @@ class text_coder_rpg(GTextPlugin):
                         tran.post_zh = tran.post_zh.replace("＠", item, 1)
                 else:
                     dic_values["".join([i for i in m.groups() if i])] = m.group(0)
-            if self.主人公变量 and self.主人公变量 in tran.pre_jp:
+            if self.主人公变量 and self.主人公变量 in tran_pre_jp:
                 if '主角' not in tran.post_zh:
                     problem_list.add(f'丢失标签{self.主人公变量}')
                 else:
@@ -327,18 +335,18 @@ class text_coder_rpg(GTextPlugin):
                     problem_list.add(f'脚本检查 标签数量错误{k} {count_pre_jp[k]}->{count_post_zh[k]}')
                     #print(count_pre_jp, count_post_zh)
 
-        if self.检查中括号数量:
-            s1_match = self.re_bracket.findall(tran.pre_jp)
 
-            s2_match = self.re_bracket.findall(tran.post_zh)
-            if len(s2_match) != len(s1_match):
-                problem_list.add(f'中括号数量{len(s1_match)}->{len(s2_match)}')
-            else:
-                s1_not_found = [s1 for s1 in set(s1_match) if s1_match.count(s1) != s2_match.count(s1)]
+        s1_match = self.re_bracket.findall(tran_pre_jp)
 
-                if s1_not_found:
-                    if sorted(s2_match) != sorted(s1_match):
-                        problem_list.add(f'中括号内容可能错误 {s1_not_found}')
+        s2_match = self.re_bracket.findall(tran.post_zh)
+        if len(s2_match) != len(s1_match):
+            problem_list.add(f'中括号数量{len(s1_match)}->{len(s2_match)}')
+        elif self.检查中括号数量:
+            s1_not_found = [s1 for s1 in set(s1_match) if s1_match.count(s1) != s2_match.count(s1)]
+
+            if s1_not_found:
+                if sorted(s2_match) != sorted(s1_match):
+                    problem_list.add(f'中括号内容可能错误 {s1_not_found}')
         if problem_list:
             tran.problem = ", ".join(problem_list)
         return tran
@@ -360,17 +368,19 @@ class text_coder_rpg(GTextPlugin):
         pass
 
 if __name__ == '__main__':
-    coder = text_rpg_coder()
+    coder = text_coder_rpg()
     coder.gtp_init({'Core': {}, 'Settings': {}}, {})
     lines = {
     #    "その艶やかな姿に\\N[3]の獣心がそそられた。\n\\N[3]は少女の動きに合わせて腰を突き上げはじめる。",
-        "const gold = $gameParty.gold();\nconst goldLabel = \"\\\\C[16]所持金\";\nconst goldText = String(gold + \" Yen\");\nthis.drawTextEx(goldLabel, r.x, r.y + 120, r.width);\nthis.drawTextEx(goldText, r.x + 200, r.y + 120, r.width)":"{color2: 高级}",
+        "\\C[0]アドラ地方　　\\C[21][\\V[61] / \\V[81]]\n\\>\\C[21]取得討伐pt　1pt": None,
     }
     for pre_line, post_line in lines.items():
         s=coder.before_src_processed(CSentense(pre_line))
         # , s.post_jp, s.pre_zh, s.post_zh
         print('pre_jp', s.pre_jp)
         print('post_jp', s.post_jp)
+        if post_line is None:
+            post_line = s.post_jp
         print("---->")
         s.pre_zh = post_line
         s.post_zh = post_line

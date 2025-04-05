@@ -118,8 +118,7 @@ class CSentense:
         mid_lst = []
         # 循环处理最多 3 个连续段落
         for _ in range(0, 3):
-            if current is None:
-                break
+
             # 句尾必须为允许的右括号之一
             if full_str[-1] in right_symbols:
                 # 检查内层文本（去掉最外层左右符号）是否平衡
@@ -132,10 +131,11 @@ class CSentense:
             if current != self:
                 mid_lst.append(current)
             current = current.next_tran
+            if current is None:
+                break
             if current._speaker and current._speaker != self._speaker:
                 break
-            if current is not None:
-                full_str += current.post_jp
+            full_str += current.post_jp
 
         if not found_right:
             self.post_jp = mono_format.replace("#句子", self.post_jp)
