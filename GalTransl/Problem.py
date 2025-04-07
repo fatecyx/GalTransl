@@ -82,8 +82,11 @@ def find_problems(
                 problem_list.append("多加换行(pre_zh)")
             elif pre_jp.count(lb_symbol) < post_zh.count(lb_symbol):
                 problem_list.append("多加换行")
-        if CProblemType.比日文长 in find_type:
-            if len(post_zh) > len(pre_jp) * 1.3:
+        if CProblemType.比日文长 in find_type or CProblemType.比日文长严格 in find_type:
+            len_beta=1.3
+            if CProblemType.比日文长严格 in find_type:
+                len_beta=1.0
+            if len(post_zh) > len(pre_jp) * len_beta:
                 problem_list.append(
                     f"比日文长{round(len(post_zh)/max(len(pre_jp),0.1),1)}倍"
                 )

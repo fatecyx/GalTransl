@@ -22,6 +22,9 @@ def load_name_table(name_table_path: str) -> Dict[str, str]:
         # Skip the header
         next(reader)
         for row in reader:
+            if len(row) < 2:
+                LOGGER.warning(f"人名替换表：存在有问题的行-- {row}")
+                continue
             if row[1] != "":
                 name_table[row[0]] = row[1]
     return name_table

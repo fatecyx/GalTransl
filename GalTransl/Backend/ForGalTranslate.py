@@ -252,10 +252,10 @@ class ForGalTranslate(BaseTranslate):
 
             i = -1
             result_trans_list = []
+            result_lines=result_text.splitlines()
             error_flag = False
             error_message = ""
-
-            for line_index, line in enumerate(result_text.split("\n")):
+            for line_index, line in enumerate(result_lines):
                 line_sp=line.split("\t")
                 if len(line_sp)!=3:
                     error_message = f"第{line_index}句无法解析： {line}"
@@ -281,9 +281,20 @@ class ForGalTranslate(BaseTranslate):
 
                 if "Chinese" in self.target_lang:  # 统一简繁体
                     line_dst = self.opencc.convert(line_dst)
+                
+                if "”" not in trans_list[i].post_jp and '"' not in trans_list[i].post_jp:
+                    line_dst = line_dst.replace('"',"")
+                else:
+                    line_dst=fix_quotes2(line_dst)
+                if not line_dst.startswith("「") and trans_list[i].post_jp.startswith("「"):
+                    line_dst = "「" + line_dst
+                if not line_dst.endswith("」") and trans_list[i].post_jp.endswith("」"):
+                    line_dst = line_dst + "」"
 
-                if '"' not in trans_list[i].post_jp and '"' in line_dst:
-                    line_dst = fix_quotes2(line_dst)
+                if "\r\n" in trans_list[i].post_jp:
+                    line_dst = line_dst.replace("\\n", "\r\n")
+                if "\t" in trans_list[i].post_jp:
+                    line_dst = line_dst.replace("\\t", "\t")
                 trans_list[i].pre_zh = line_dst
                 trans_list[i].post_zh = line_dst
                 trans_list[i].trans_by = self.chatbot.engine

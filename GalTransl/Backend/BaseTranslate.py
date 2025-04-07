@@ -1,4 +1,5 @@
 import json, time, asyncio, os, traceback
+import openai
 from opencc import OpenCC
 from typing import Optional
 from GalTransl.COpenAI import COpenAITokenPool
@@ -113,6 +114,8 @@ class BaseTranslate:
 
     def init_chatbot(self, eng_type, config):
         pass
+
+    
 
     def clean_up(self):
         pass

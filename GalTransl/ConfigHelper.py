@@ -49,6 +49,7 @@ class CProblemType(Enum):
     比日文长 = 6
     字典使用 = 7
     引入英文 = 8
+    比日文长严格 = 9
 
 
 class CProjectConfig:
