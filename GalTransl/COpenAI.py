@@ -1,12 +1,13 @@
 """
 CloseAI related classes
 """
+
 import os
 from httpx import AsyncClient
 import asyncio
 from tqdm.asyncio import tqdm
 from time import time
-from GalTransl import LOGGER
+from GalTransl import LOGGER, TRANSLATOR_DEFAULT_ENGINE
 from GalTransl.ConfigHelper import CProjectConfig, CProxy
 from typing import Optional, Tuple
 from random import choice
@@ -14,27 +15,16 @@ from asyncio import Queue
 from openai import OpenAI
 import re
 
-TRANSLATOR_ENGINE = {
-    "gpt35": "gpt-3.5-turbo",
-    "gpt35-0613": "gpt-3.5-turbo-0613",
-    "gpt35-1106": "gpt-3.5-turbo-1106",
-    "gpt35-0125": "gpt-3.5-turbo-0125",
-    "gpt4": "gpt-4",
-    "gpt4-turbo": "gpt-4-0125-preview",
-}
-
 
 class COpenAIToken:
     """
     OpenAI 令牌
     """
 
-    def __init__(self, token: str, domain: str, gpt3: bool, gpt4: bool) -> None:
+    def __init__(self, token: str, domain: str, isAvailable: bool) -> None:
         self.token: str = token
-        # it's domain, not endpoint address..
         self.domain: str = domain
-        self.isGPT35Available: bool = gpt3
-        self.isGPT4Available: bool = gpt4
+        self.isAvailable: bool = isAvailable
 
     def maskToken(self) -> str:
         """
@@ -54,9 +44,12 @@ def initGPTToken(config: CProjectConfig, eng_type: str) -> Optional[list[COpenAI
         degradeBackend = val
 
     defaultEndpoint = "https://api.openai.com"
-
-    if gpt4_tokens := config.getBackendConfigSection("GPT4").get("tokens"):
-        for tokenEntry in gpt4_tokens:
+    if "GPT4" in config.projectConfig["backendSpecific"]:  # 兼容旧版
+        section_name = "GPT4"
+    else:
+        section_name = "OpenAI-Compatible"
+    if all_tokens := config.getBackendConfigSection(section_name).get("tokens"):
+        for tokenEntry in all_tokens:
             token = tokenEntry["token"]
             domain = (
                 tokenEntry["endpoint"]
@@ -78,21 +71,38 @@ class COpenAITokenPool:
     """
 
     def __init__(self, config: CProjectConfig, eng_type: str) -> None:
+
+        token_list: list[dict] = []
+        defaultEndpoint = "https://api.openai.com"
+        if "GPT4" in config.projectConfig["backendSpecific"]:  # 兼容旧版
+            section_name = "GPT4"
+        else:
+            section_name = "OpenAI-Compatible"
+
         self.tokens: list[tuple[bool, COpenAIToken]] = []
-        for token in initGPTToken(config, eng_type):
+        self.force_eng_name = config.getBackendConfigSection(section_name).get(
+            "rewriteModelName", ""
+        )
+
+        if all_tokens := config.getBackendConfigSection(section_name).get("tokens"):
+            for tokenEntry in all_tokens:
+                token = tokenEntry["token"]
+                domain = (
+                    tokenEntry["endpoint"]
+                    if tokenEntry.get("endpoint")
+                    else defaultEndpoint
+                )
+                domain = domain[:-1] if domain.endswith("/") else domain
+                token_list.append(COpenAIToken(token, domain, True))
+                pass
+
+        for token in token_list:
             self.tokens.append((False, token))
 
-        section = config.getBackendConfigSection("GPT4")
-        self.force_eng_name = section.get("rewriteModelName", "")
-
     async def _isTokenAvailable(
-        self, token: COpenAIToken, proxy: CProxy = None, eng_type: str = ""
+        self, token: COpenAIToken, proxy: CProxy = None, model_name: str = ""
     ) -> Tuple[bool, bool, bool, COpenAIToken]:
-        # returns isAvailable,isGPT3Available,isGPT4Available,token
-        # todo: do not remove token directly, we can score the token
-        model_name = TRANSLATOR_ENGINE.get(eng_type, "gpt-3.5-turbo")
-        if self.force_eng_name:
-            model_name = self.force_eng_name
+
         if not token.domain.endswith("/v1") and not re.search(r"/v\d+$", token.domain):
             base_url = token.domain + "/v1"
         else:
@@ -106,33 +116,24 @@ class COpenAITokenPool:
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": "JUST echo OK"}],
-                temperature=0.7,
+                temperature=0.1,
                 max_tokens=100,
                 timeout=30,
             )
 
             if not response.choices[0].message.content:
                 # token not available, may token has been revoked
-                return False, False, False, token
+                return False, token
             else:
-                isGPT3Available = False
-                isGPT4Available = False
 
-                if "gpt-4" in model_name:
-                    isGPT4Available = True
-                elif "gpt-3.5" in model_name:
-                    isGPT3Available = True
-                else:
-                    isGPT4Available, isGPT3Available = True, True
-
-                return True, isGPT3Available, isGPT4Available, token
+                return True, token
         except Exception as e:
             LOGGER.debug(e)
 
             LOGGER.debug(
                 "we got exception in testing OpenAI token %s", token.maskToken()
             )
-            return False, False, False, token
+            return False, token
         finally:
             et = time()
             LOGGER.debug("tested OpenAI token %s in %s", token.maskToken(), et - st)
@@ -142,21 +143,20 @@ class COpenAITokenPool:
         self,
         token: COpenAIToken,
         proxy: CProxy = None,
-        eng_type: str = "",
+        model_name: str = "",
         max_retries: int = 3,
-    ) -> Tuple[bool, bool, bool, COpenAIToken]:
+    ) -> Tuple[bool, COpenAIToken]:
         for retry_count in range(max_retries):
-            is_available, is_gpt3_available, is_gpt4_available, token = (
-                await self._isTokenAvailable(token, proxy, eng_type)
-            )
+            is_available, token = await self._isTokenAvailable(token, proxy, model_name)
             if is_available:
-                return is_available, is_gpt3_available, is_gpt4_available, token
+                return is_available, token
             else:
                 # wait for some time before retrying, you can add some delay here
+                LOGGER.warning(f"可用性检查失败，正在重试 {retry_count + 1} 次...")
                 await asyncio.sleep(1)
 
         # If all retries fail, return the result from the last attempt
-        return is_available, is_gpt3_available, is_gpt4_available, token
+        return is_available, token
 
     async def checkTokenAvailablity(
         self, proxy: CProxy = None, eng_type: str = ""
@@ -164,26 +164,24 @@ class COpenAITokenPool:
         """
         检测令牌有效性
         """
-        model_name = TRANSLATOR_ENGINE.get(eng_type, "gpt-3.5-turbo")
+        model_name = TRANSLATOR_DEFAULT_ENGINE.get(eng_type, "")
         if self.force_eng_name:
             model_name = self.force_eng_name
-        if model_name == "gpt-3.5-turbo-0125":
-            raise RuntimeError("gpt-3.5-turbo-0125质量太差，请更换其他模型！")
+        assert model_name != "", "model_name is empty!"
+
         LOGGER.info(f"测试key是否能调用{model_name}模型...")
         fs = []
         for _, token in self.tokens:
             fs.append(
                 self._check_token_availability_with_retry(
-                    token, proxy if proxy else None, eng_type
+                    token, proxy if proxy else None, model_name
                 )
             )
-        result: list[tuple[bool, bool, bool, COpenAIToken]] = await tqdm.gather(
-            *fs, ncols=80
-        )
+        result: list[tuple[bool, COpenAIToken]] = await tqdm.gather(*fs, ncols=80)
 
         # replace list with new one
         newList: list[tuple[bool, COpenAIToken]] = []
-        for isAvailable, isGPT3Available, isGPT4Available, token in result:
+        for isAvailable, token in result:
             if isAvailable != True:
                 LOGGER.warning(
                     "%s is not available for %s, will be removed",
@@ -205,7 +203,7 @@ class COpenAITokenPool:
             pass
         pass
 
-    def getToken(self, needGPT3: bool, needGPT4: bool) -> COpenAIToken:
+    def getToken(self) -> COpenAIToken:
         """
         获取一个有效的 token
         """
@@ -217,9 +215,7 @@ class COpenAITokenPool:
                 available, token = choice(self.tokens)
                 if not available:
                     continue
-                if needGPT3 and token.isGPT35Available:
-                    return token
-                if needGPT4 and token.isGPT4Available:
+                if token.isAvailable:
                     return token
                 rounds += 1
             except IndexError:

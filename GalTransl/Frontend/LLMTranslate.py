@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional, Union, Tuple
-from os import makedirs, sep as os_sep
+from os import makedirs,cpu_count, sep as os_sep
 from os.path import (
     join as joinpath,
     exists as isPathExists,
@@ -83,7 +83,7 @@ async def doLLMTranslate(
     file_list.sort(key=natural_sort_key)
     
     # 读取所有文件获得total_chunks列表
-    with ThreadPoolExecutor(max_workers=workersPerProject) as executor:
+    with ThreadPoolExecutor(max_workers=cpu_count()) as executor:
         future_to_file = {
             executor.submit(fplugins_load_file, file_path, fPlugins): file_path
             for file_path in file_list
@@ -125,22 +125,28 @@ async def doLLMTranslate(
             LOGGER.exception(f"任务执行失败: {e}")
             return None
 
-    # 按文件分组chunks，保持文件内部的顺序
-    file_chunks = {}
-    for chunk in total_chunks:
-        if chunk.file_path not in file_chunks:
-            file_chunks[chunk.file_path] = []
-        file_chunks[chunk.file_path].append(chunk)
-    
-    # 确保每个文件内的chunks按索引排序
-    for file_path in file_chunks:
-        file_chunks[file_path].sort(key=lambda x: x.chunk_index)
-    
-    # 按照file_list的顺序处理文件，保持文件间的顺序
-    ordered_chunks = []
-    for file_path in file_list:
-        if file_path in file_chunks:
-            ordered_chunks.extend(file_chunks[file_path])
+    soryBy=projectConfig.getKey("sortBy","name")
+    if soryBy=="name":
+        # 按文件分组chunks，保持文件内部的顺序
+        file_chunks = {}
+        for chunk in total_chunks:
+            if chunk.file_path not in file_chunks:
+                file_chunks[chunk.file_path] = []
+            file_chunks[chunk.file_path].append(chunk)
+        
+        # 确保每个文件内的chunks按索引排序
+        for file_path in file_chunks:
+            file_chunks[file_path].sort(key=lambda x: x.chunk_index)
+        
+        # 按照file_list的顺序处理文件，保持文件间的顺序
+        ordered_chunks = []
+        for file_path in file_list:
+            if file_path in file_chunks:
+                ordered_chunks.extend(file_chunks[file_path])
+    elif soryBy=="size":
+        total_chunks.sort(key=lambda x: x.chunk_size, reverse=True)
+        ordered_chunks = total_chunks
+        
     
     # 创建任务队列，保持顺序但允许并行执行
     all_tasks = []

@@ -178,6 +178,7 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
         await OpenAITokenPool.checkTokenAvailablity(
             proxyPool.getProxy() if proxyPool else None, translator
         )
+        OpenAITokenPool.getToken()
     else:
         OpenAITokenPool = None
 

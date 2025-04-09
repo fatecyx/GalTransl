@@ -64,34 +64,18 @@ class BaseTranslate:
             raise ValueError("错误的目标语言代码：" + self.target_lang)
         else:
             self.target_lang = LANG_SUPPORTED[self.target_lang]
+
         # 429等待时间
-        if val := config.getKey("gpt.tooManyRequestsWaitTime"):
-            self.wait_time = val
-        else:
-            self.wait_time = 60
+        self.wait_time = config.getKey("gpt.tooManyRequestsWaitTime",60)
         # 跳过重试
-        if val := config.getKey("skipRetry"):
-            self.skipRetry = val
-        else:
-            self.skipRetry = False
+        self.skipRetry = config.getKey("skipRetry",False)
         # 跳过h
-        if val := config.getKey("skipH"):
-            self.skipH = val
-        else:
-            self.skipH = False
-        # enhance_jailbreak
-        if val := config.getKey("gpt.enhance_jailbreak"):
-            self.enhance_jailbreak = val
-        else:
-            self.enhance_jailbreak = False
+        self.skipH = config.getKey("skipH",False)
+
         # 流式输出模式
-        if val := config.getKey("gpt.streamOutputMode"):
-            self.streamOutputMode = val
-        else:
+        self.streamOutputMode = config.getKey("gpt.streamOutputMode",False)
+        if config.getKey("workersPerProject") > 1:  # 多线程关闭流式输出
             self.streamOutputMode = False
-        if val := config.getKey("workersPerProject"):  # 多线程关闭流式输出
-            if val > 1:
-                self.streamOutputMode = False
 
         self.tokenProvider = token_pool
         if config.getKey("internals.enableProxy") == True:
@@ -103,8 +87,6 @@ class BaseTranslate:
 
         self.init_chatbot(eng_type=eng_type, config=config)  # 模型选择
 
-        self._set_temp_type("precise")
-
         if self.target_lang == "Simplified_Chinese":
             self.opencc = OpenCC("t2s.json")
         elif self.target_lang == "Traditional_Chinese":
@@ -113,6 +95,9 @@ class BaseTranslate:
         pass
 
     def init_chatbot(self, eng_type, config):
+        pass
+
+    def ask_chatbot(self, prompt, stream=False):
         pass
 
     

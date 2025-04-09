@@ -1,7 +1,7 @@
 ---
 # 翻译后端相关设置
 backendSpecific:
-  GPT4: # GPT4/Claude-3/Deepseek-V3/Deepseek-R1等，所有OpenAI API类接口通用
+  OpenAI-Compatible: # (ForGal/gpt4/r1模板)OpenAI API兼容接口通用
     tokens:
       - token: sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         endpoint: https://api.openai.com # 请求地址，使用转发或第三方API时修改
@@ -16,13 +16,14 @@ backendSpecific:
 # 程序设置
 common:
   gpt.numPerRequestTranslate: 8 # 单次请求翻译句子数量，推荐值 < 15
-  workersPerProject: 1 # 同时翻译n个文件。当开启splitFile时，允许单文件多线程。
+  workersPerProject: 8 # 同时翻译n个文件（单个文件要多线程时需开启splitFile）
+  sortBy: "size" # 翻译顺序，name为文件名，size为大文件优先，多线程时大文件优先可以提高整体速度[name/size]
   language: "ja2zh-cn" # 源语言2(to)目标语言。[zh-cn/zh-tw/en/ja/ko/ru/fr]
 
-  # (实验性)单文件分割设置（※重要：不要在翻译中途修改，否则会导致缓存失效）
+  # 单文件分割设置（※重要：不要在翻译中途修改，否则会导致缓存失效）
   splitFile: false # 是否启用单文件分割。[True/False]
-  splitFileMethod: "EqualPartsSplitter" # 分句方法，EqualPartsSplitter为对文件平均分句，DictionaryCountSplitter为指定条数分句。[EqualPartsSplitter/DictionaryCountSplitter]
-  splitFileNum: -1 # 平均分句时，表示每个文件拆分成n段，-1则与workersPerProject一致；条数分句时，表示n句拆分一次，此时建议大于1000
+  splitFileMethod: "DictionaryCountSplitter" # 分句方法，EqualPartsSplitter为对文件平均分句，DictionaryCountSplitter为指定条数分句。[EqualPartsSplitter/DictionaryCountSplitter]
+  splitFileNum: 200 # 平均分句时，表示每个文件均分拆成n部分；条数分句时，表示n句拆分一次，此时建议大于100
   splitFileCrossNum: 0 # 分割文件时前后交叉n句，可能可以提高衔接处翻译质量[推荐0或10]。
 
   save_steps: 1 # 每翻译n次保存一次缓存，单个文件较大时可以调高到100之类的数来提高速度。[1-999]
@@ -32,7 +33,7 @@ common:
   skipRetry: false # 解析结果出错时，是否跳过循环重试，直接用"Fail Translation"占位。[True/False]
   retranslFail: false # 重启时重翻所有显示为"Fail Translation"的句子。[True/False]
   retranslKey:
-    - "重启时主动重翻在缓存的problem或pre_jp中包含对应**关键字**的句子，去掉下面列表中的注释来使用，也可添加自定义的关键字。"
+    - "重启时主动重翻在缓存的problem或pre_jp中包含对应**关键字**的句子，去掉下面列表中的#号注释来使用，也可添加自定义的关键字。"
     #- "词频过高" # 重复大于20次
     #- "残留日文" # 日文平假名片假名残留
     #- "项目GPT字典" # LLM没有按GPT字典要求翻译
@@ -45,7 +46,6 @@ common:
   # GPT4
   gpt.enableProofRead: false # (GPT4)是否开启译后校润。（不建议使用，很久未维护）[True/False]
   gpt.numPerRequestProofRead: 7 # (GPT4)单次校润句子数量，不建议修改
-  gpt.restoreContextMode: true # (GPT3.5/4)重启时恢复上一轮的译文前文。[True/False]
   gpt.change_prompt: false # (GPT-4/r1)是否开启修改默认prompt
   gpt.prompt_type: "AdditionalPrompt" # (GPT-4/r1)"AdditionalPrompt"为增加额外要求，"OverwritePrompt"为覆写原本的prompt
   gpt.prompt_content: "翻译结果使用文言文" # 示例额外要求，change_prompt为true时才生效

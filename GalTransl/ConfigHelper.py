@@ -1,6 +1,7 @@
 """
 读取 / 处理配置
 """
+
 from GalTransl import (
     LOGGER,
     CONFIG_FILENAME,
@@ -83,18 +84,18 @@ class CProjectConfig:
             self.keyValues,
         )
 
-        self.select_translator = "" # 本次选择的翻译器
-        self.pre_dic: CNormalDic = None # 预处理字典
-        self.post_dic: CNormalDic = None # 后处理字典
-        self.gpt_dic: CGptDict = None # gpt字典
-        self.file_save_funcs = {} # 文件保存函数
-        self.name_replaceDict = {} # 名字替换字典
-        self.tPlugins = [] # 文本插件列表
-        self.fPlugins = [] # 文件插件列表
-        self.tokenPool = None # 令牌池
-        self.proxyPool = None # 代理池
-        self.endpointQueue = None # 端点队列
-        self.input_splitter = None # 输入分割器
+        self.select_translator = ""  # 本次选择的翻译器
+        self.pre_dic: CNormalDic = None  # 预处理字典
+        self.post_dic: CNormalDic = None  # 后处理字典
+        self.gpt_dic: CGptDict = None  # gpt字典
+        self.file_save_funcs = {}  # 文件保存函数
+        self.name_replaceDict = {}  # 名字替换字典
+        self.tPlugins = []  # 文本插件列表
+        self.fPlugins = []  # 文件插件列表
+        self.tokenPool = None  # 令牌池
+        self.proxyPool = None  # 代理池
+        self.endpointQueue = None  # 端点队列
+        self.input_splitter = None  # 输入分割器
 
     def getProjectConfig(self) -> dict:
         """
@@ -128,7 +129,7 @@ class CProjectConfig:
 
     def getCommonConfigSection(self) -> dict:
         return self.projectConfig["common"]
-    
+
     def getPluginConfigSection(self) -> dict:
         return self.projectConfig["plugin"]
 
@@ -153,8 +154,8 @@ class CProjectConfig:
         else:
             return None
 
-    def getKey(self, key: str) -> str | bool | int | None:
-        return self.keyValues.get(key)
+    def getKey(self, key: str, default: None = None) -> str | bool | int | None:
+        return self.keyValues.get(key, default)
 
     def getProblemAnalyzeConfig(self, backendName: str) -> list[CProblemType]:
         if backendName not in self.projectConfig["problemAnalyze"]:
@@ -191,15 +192,17 @@ class CProxyPool:
             # 检查httpx版本
             try:
                 httpx_version = version("httpx")
-                is_new_version = tuple(map(int, httpx_version.split('.'))) >= (0, 28, 0)
+                is_new_version = tuple(map(int, httpx_version.split("."))) >= (0, 28, 0)
             except:
                 is_new_version = False
-                
+
             if is_new_version:
                 async with AsyncClient(proxy={"http://": proxy.addr}) as client:
                     response = await client.get(test_address)
                     if response.status_code != 204:
-                        LOGGER.debug("tested proxy %s failed (%s)", proxy.addr, response)
+                        LOGGER.debug(
+                            "tested proxy %s failed (%s)", proxy.addr, response
+                        )
                         return False, proxy
                     else:
                         return True, proxy
@@ -207,7 +210,9 @@ class CProxyPool:
                 async with AsyncClient(proxies={"http://": proxy.addr}) as client:
                     response = await client.get(test_address)
                     if response.status_code != 204:
-                        LOGGER.debug("tested proxy %s failed (%s)", proxy.addr, response)
+                        LOGGER.debug(
+                            "tested proxy %s failed (%s)", proxy.addr, response
+                        )
                         return False, proxy
                     else:
                         return True, proxy

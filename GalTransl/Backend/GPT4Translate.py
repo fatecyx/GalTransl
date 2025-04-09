@@ -4,7 +4,7 @@ from opencc import OpenCC
 from typing import Optional
 from GalTransl.COpenAI import COpenAITokenPool
 from GalTransl.ConfigHelper import CProxyPool
-from GalTransl import LOGGER, LANG_SUPPORTED
+from GalTransl import LOGGER, LANG_SUPPORTED,TRANSLATOR_DEFAULT_ENGINE
 from sys import exit
 from GalTransl.ConfigHelper import (
     CProjectConfig,
@@ -139,11 +139,17 @@ class CGPT4Translate(BaseTranslate):
         pass
 
     def init_chatbot(self, eng_type, config):
-        eng_name = config.getBackendConfigSection("GPT4").get("rewriteModelName", "")
+        if "GPT4" in config.projectConfig["backendSpecific"]:  # 兼容旧版
+            section_name = "GPT4"
+        else:
+            section_name = "OpenAI-Compatible"
+        eng_name = config.getBackendConfigSection(section_name).get(
+            "rewriteModelName", TRANSLATOR_DEFAULT_ENGINE[eng_type]
+        )
 
         from GalTransl.Backend.revChatGPT.V3 import Chatbot as ChatbotV3
 
-        self.token = self.tokenProvider.getToken(False, True)
+        self.token = self.tokenProvider.getToken()
         eng_name = "gpt-4-1106-preview" if eng_name == "" else eng_name
 
         try:
@@ -262,7 +268,7 @@ class CGPT4Translate(BaseTranslate):
             try:
                 # change token
                 if self.eng_type != "unoffapi":
-                    self.token = self.tokenProvider.getToken(False, True)
+                    self.token = self.tokenProvider.getToken()
                     self.chatbot.set_api_key(self.token.token)
                     base_path = "/v1" if not re.search(r"/v\d+$", self.token.domain) else ""
                     self.chatbot.set_api_addr(
@@ -305,7 +311,7 @@ class CGPT4Translate(BaseTranslate):
                 if "quota" in str_ex:
                     self.tokenProvider.reportTokenProblem(self.token)
                     LOGGER.error(f"-> [请求错误]余额不足： {self.token.maskToken()}")
-                    self.token = self.tokenProvider.getToken(False, True)
+                    self.token = self.tokenProvider.getToken()
                     self.chatbot.set_api_key(self.token.token)
                     self._del_last_answer()
                     LOGGER.warning(f"-> [请求错误]切换到token {self.token.maskToken()}")
@@ -523,7 +529,7 @@ class CGPT4Translate(BaseTranslate):
             file=stdout,
         )
         while i < len_trans_list:
-            await asyncio.sleep(1)
+            #await asyncio.sleep(1)
             trans_list_split = (
                 trans_list_unhit[i : i + num_pre_request]
                 if (i + num_pre_request < len_trans_list)

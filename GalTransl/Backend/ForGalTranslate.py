@@ -5,8 +5,8 @@ from tqdm.contrib.logging import logging_redirect_tqdm
 from tqdm.asyncio import tqdm as atqdm
 from GalTransl.COpenAI import COpenAITokenPool
 from GalTransl.ConfigHelper import CProxyPool
-from GalTransl import LOGGER, LANG_SUPPORTED
-from sys import exit,stdout
+from GalTransl import LOGGER, LANG_SUPPORTED, TRANSLATOR_DEFAULT_ENGINE
+from sys import exit, stdout
 from GalTransl.ConfigHelper import (
     CProjectConfig,
 )
@@ -15,10 +15,7 @@ from GalTransl.CSentense import CSentense, CTransList
 from GalTransl.Cache import get_transCache_from_json_new, save_transCache_to_json
 from GalTransl.Dictionary import CGptDict
 from GalTransl.Utils import extract_code_blocks, fix_quotes2
-from GalTransl.Backend.Prompts import (
-    SMARTGAL_BETA_SYSTEM,
-    SMARTGAL_BETA_TRANS_PROMPT
-)
+from GalTransl.Backend.Prompts import SMARTGAL_BETA_SYSTEM, SMARTGAL_BETA_TRANS_PROMPT
 from GalTransl.Backend.BaseTranslate import BaseTranslate
 
 
@@ -129,16 +126,21 @@ class ForGalTranslate(BaseTranslate):
         pass
 
     def init_chatbot(self, eng_type, config):
-        eng_name = config.getBackendConfigSection("GPT4").get("rewriteModelName", "")
+        if "GPT4" in config.projectConfig["backendSpecific"]:  # 兼容旧版
+            section_name = "GPT4"
+        else:
+            section_name = "OpenAI-Compatible"
+        eng_name = config.getBackendConfigSection(section_name).get(
+            "rewriteModelName", TRANSLATOR_DEFAULT_ENGINE[eng_type]
+        )
 
         from GalTransl.Backend.revChatGPT.V3 import Chatbot as ChatbotV3
 
-        self.token = self.tokenProvider.getToken(False, True)
+        self.token = self.tokenProvider.getToken()
         eng_name = "deepseek-chat" if eng_name == "" else eng_name
         system_prompt = SMARTGAL_BETA_SYSTEM
         trans_prompt = SMARTGAL_BETA_TRANS_PROMPT
-        #proofread_prompt = GPT4Turbo_PROOFREAD_PROMPT
-
+        # proofread_prompt = GPT4Turbo_PROOFREAD_PROMPT
 
         base_path = "/v1" if not re.search(r"/v\d+$", self.token.domain) else ""
         self.chatbot = ChatbotV3(
@@ -152,7 +154,7 @@ class ForGalTranslate(BaseTranslate):
             response_format="json",
         )
         self.chatbot.trans_prompt = trans_prompt
-       # self.chatbot.proofread_prompt = proofread_prompt
+        # self.chatbot.proofread_prompt = proofread_prompt
         self.chatbot.update_proxy(
             self.proxyProvider.getProxy().addr if self.proxyProvider else None
         )
@@ -161,12 +163,11 @@ class ForGalTranslate(BaseTranslate):
         input_list = []
         for i, trans in enumerate(trans_list):
 
-            speaker=trans.speaker if trans.speaker else "null"
-            src_text=trans.post_jp
-            src_text=src_text.replace("\r\n","\\n").replace("\t","\\t")
-            tmp_obj=f"{trans.index}\t{speaker}\t{src_text}"
+            speaker = trans.speaker if trans.speaker else "null"
+            src_text = trans.post_jp
+            src_text = src_text.replace("\r\n", "\\n").replace("\t", "\\t")
+            tmp_obj = f"{trans.index}\t{speaker}\t{src_text}"
             input_list.append(tmp_obj)
-
 
         input_src = "\n".join(input_list)
 
@@ -180,7 +181,6 @@ class ForGalTranslate(BaseTranslate):
         prompt_req = prompt_req.replace("[SourceLang]", self.source_lang)
         prompt_req = prompt_req.replace("[TargetLang]", self.target_lang)
 
-
         if self.enhance_jailbreak:
             assistant_prompt = "ID\tNAME\tDST"
         else:
@@ -188,7 +188,7 @@ class ForGalTranslate(BaseTranslate):
 
         while True:  # 一直循环，直到得到数据
             try:
-                self.token = self.tokenProvider.getToken(False, True)
+                self.token = self.tokenProvider.getToken()
                 self.chatbot.set_api_key(self.token.token)
                 base_path = "/v1" if not re.search(r"/v\d+$", self.token.domain) else ""
                 self.chatbot.set_api_addr(
@@ -211,7 +211,6 @@ class ForGalTranslate(BaseTranslate):
                         print(data, end="", flush=True)
                     resp += data
 
-
                 if not self.streamOutputMode:
                     LOGGER.info(f"->输出：\n{resp}")
                 else:
@@ -226,7 +225,7 @@ class ForGalTranslate(BaseTranslate):
                 if "quota" in str_ex:
                     self.tokenProvider.reportTokenProblem(self.token)
                     LOGGER.error(f"-> [请求错误]余额不足： {self.token.maskToken()}")
-                    self.token = self.tokenProvider.getToken(False, True)
+                    self.token = self.tokenProvider.getToken()
                     self.chatbot.set_api_key(self.token.token)
                     self._del_last_answer()
                     LOGGER.warning(f"-> [请求错误]切换到token {self.token.maskToken()}")
@@ -248,16 +247,15 @@ class ForGalTranslate(BaseTranslate):
                     continue
 
             result_text = resp
-            
 
             i = -1
             result_trans_list = []
-            result_lines=result_text.splitlines()
+            result_lines = result_text.splitlines()
             error_flag = False
             error_message = ""
             for line_index, line in enumerate(result_lines):
-                line_sp=line.split("\t")
-                if len(line_sp)!=3:
+                line_sp = line.split("\t")
+                if len(line_sp) != 3:
                     error_message = f"第{line_index}句无法解析： {line}"
                     error_flag = True
                     break
@@ -271,8 +269,8 @@ class ForGalTranslate(BaseTranslate):
                     error_message = f"输出{line_id}句id未对应"
                     error_flag = True
                     break
-                
-                line_dst=line_sp[2]
+
+                line_dst = line_sp[2]
                 # 本行输出不应为空
                 if trans_list[i].post_jp != "" and line_dst == "":
                     error_message = f"第{line_id}句空白"
@@ -281,12 +279,17 @@ class ForGalTranslate(BaseTranslate):
 
                 if "Chinese" in self.target_lang:  # 统一简繁体
                     line_dst = self.opencc.convert(line_dst)
-                
-                if "”" not in trans_list[i].post_jp and '"' not in trans_list[i].post_jp:
-                    line_dst = line_dst.replace('"',"")
+
+                if (
+                    "”" not in trans_list[i].post_jp
+                    and '"' not in trans_list[i].post_jp
+                ):
+                    line_dst = line_dst.replace('"', "")
                 else:
-                    line_dst=fix_quotes2(line_dst)
-                if not line_dst.startswith("「") and trans_list[i].post_jp.startswith("「"):
+                    line_dst = fix_quotes2(line_dst)
+                if not line_dst.startswith("「") and trans_list[i].post_jp.startswith(
+                    "「"
+                ):
                     line_dst = "「" + line_dst
                 if not line_dst.endswith("」") and trans_list[i].post_jp.endswith("」"):
                     line_dst = line_dst + "」"
@@ -295,6 +298,10 @@ class ForGalTranslate(BaseTranslate):
                     line_dst = line_dst.replace("\\n", "\r\n")
                 if "\t" in trans_list[i].post_jp:
                     line_dst = line_dst.replace("\\t", "\t")
+                if "……" in trans_list[i].post_jp and "..." in line_dst:
+                    line_dst = line_dst.replace("......", "……")
+                    line_dst = line_dst.replace("...", "……")
+
                 trans_list[i].pre_zh = line_dst
                 trans_list[i].post_zh = line_dst
                 trans_list[i].trans_by = self.chatbot.engine
@@ -434,7 +441,6 @@ class ForGalTranslate(BaseTranslate):
             LOGGER.info(
                 f"{filename}: {str(len(trans_result_list))}/{str(len_trans_list)}"
             )
-            
 
         progress_bar.close()
         return trans_result_list
@@ -507,8 +513,8 @@ class ForGalTranslate(BaseTranslate):
                 if current_tran.pre_zh == "":
                     current_tran = current_tran.prev_tran
                     continue
-                speaker=current_tran.speaker if current_tran.speaker else "null"
-                tmp_obj=f"{current_tran.index}\t{speaker}\t{current_tran.pre_zh}"
+                speaker = current_tran.speaker if current_tran.speaker else "null"
+                tmp_obj = f"{current_tran.index}\t{speaker}\t{current_tran.pre_zh}"
                 tmp_context.append(tmp_obj)
                 num_count += 1
                 if num_count >= num_pre_request:

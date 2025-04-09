@@ -50,24 +50,31 @@ PROGRAM_SPLASH4 = r"""
 ALL_BANNERS = [PROGRAM_SPLASH1, PROGRAM_SPLASH2, PROGRAM_SPLASH3, PROGRAM_SPLASH4]
 PROGRAM_SPLASH = ALL_BANNERS[localtime().tm_mday % 4]
 
-GALTRANSL_VERSION = "5.12.1"
+GALTRANSL_VERSION = "5.13.0"
 AUTHOR = "xd2333"
-CONTRIBUTORS = "ryank231231, PiDanShouRouZhouXD, Noriverwater, Isotr0py, adsf0427, pipixia244, gulaodeng, sakura-umi, lifegpc, natsumerinchan"
+CONTRIBUTORS = "ryank231231, PiDanShouRouZhouXD, Noriverwater, Isotr0py, adsf0427, pipixia244, gulaodeng, sakura-umi, lifegpc, natsumerinchan, szyzbg"
 
 CONFIG_FILENAME = "config.yaml"
 INPUT_FOLDERNAME = "gt_input"
 OUTPUT_FOLDERNAME = "gt_output"
 CACHE_FOLDERNAME = "transl_cache"
 TRANSLATOR_SUPPORTED = {
-    "ForGal": "（Beta，目前基于Deepseek-V3）为翻译Gal重新定制的翻译模板，更快更省更好",
-    "gpt4": "（GPT4/Claude-3/Deepseek-V3）比较聪明的模型通用的翻译模板，默认GPT4-1106模型",
-    "r1": "Deepseek-R1模型专用翻译模板",
+    "ForGal": "（Beta，目前基于Deepseek-V3）为翻译Gal重新定制的翻译模板，更快更省更好。默认deepseek-chat模型",
+    "gpt4": "（GPT4/Claude-3/Deepseek-V3）比较聪明的模型通用的翻译模板，默认gpt-4模型",
+    "r1": "Deepseek-R1模型专用翻译模板，默认deepseek-reasoner模型",
     "sakura-v1.0": "（适用v1.0版prompt）为翻译轻小说/Gal开展大规模训练的本地模型，具有多个型号和大小",
     "galtransl-v3": "为翻译Gal基于Sakura进一步优化的本地小模型，可运行在6G空闲显存的游戏显卡和MacBook上",
     "rebuildr": "重建结果 用译前译后字典通过缓存刷写结果json -- 跳过翻译和写缓存",
     "rebuilda": "重建缓存和结果 用译前译后字典刷写缓存+结果json -- 跳过翻译",
     "dump-name": "导出name字段，生成人名替换表，用于翻译name字段",
     "show-plugs": "显示全部插件列表",
+}
+TRANSLATOR_DEFAULT_ENGINE = {
+    "ForGal": "deepseek-chat",
+    "gpt4": "gpt-4",
+    "r1": "deepseek-reasoner",
+    "sakura-v1.0": "sakura-7b-qwen2.5-v1.0",
+    "galtransl-v3": "Sakura-GalTransl-7B-v3",
 }
 NEED_OpenAITokenPool=["gpt", "r1", "ForGal"]
 LANG_SUPPORTED = {
