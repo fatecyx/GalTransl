@@ -71,13 +71,13 @@ class text_coder_rpg(GTextPlugin):
 
         self.替换rpg变量 = settings.get("替换rpg变量", True)
         self.检查脚本变量 = settings.get("检查脚本变量", True)
-        self.检查中括号数量 = settings.get("检查中括号数量", True)
+        self.检查中括号内容一致 = settings.get("检查中括号内容一致", True)
         self.主人公变量 = settings.get("主人公变量", None)
 
         LOGGER.info(f"[{self.pname}] CheckBrackets·启动！")
         LOGGER.info(f"[{self.pname}] 替换rpg变量:{settings.get('替换rpg变量', True)}")
         LOGGER.info(f"[{self.pname}] 检查脚本变量:{settings.get('检查脚本变量', True)}")
-        LOGGER.info(f"[{self.pname}] 检查中括号数量:{settings.get('检查中括号数量', True)}")
+        LOGGER.info(f"[{self.pname}] 检查中括号内容一致:{settings.get('检查中括号内容一致', True)}")
         LOGGER.info(f"[{self.pname}] 主人公变量:{settings.get('主人公变量', None)}")
 
         code_pattern = (
@@ -341,7 +341,7 @@ class text_coder_rpg(GTextPlugin):
         s2_match = self.re_bracket.findall(tran.post_zh)
         if len(s2_match) != len(s1_match):
             problem_list.add(f'中括号数量{len(s1_match)}->{len(s2_match)}')
-        elif self.检查中括号数量:
+        elif self.检查中括号内容一致:
             s1_not_found = [s1 for s1 in set(s1_match) if s1_match.count(s1) != s2_match.count(s1)]
 
             if s1_not_found:
