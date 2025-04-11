@@ -148,7 +148,7 @@ class CSentense:
         current.is_dialogue = True
         current.has_diag_symbol = True
         # 这里将当前的 right_symbol 更新为最外层的右括号（注意：如果有多个可能，这里取最后一个字符）
-        current.right_symbol = full_str[-1] + self.right_symbol
+        current.right_symbol = full_str[-1] + current.right_symbol
         current.speaker = self.speaker
         for t in mid_lst:
             t.is_dialogue = True
