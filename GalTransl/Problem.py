@@ -72,16 +72,20 @@ def find_problems(
         if CProblemType.残留日文 in find_type:
             if contains_japanese(pre_zh):
                 problem_list.append("残留日文")
+        count_lb_post_jp = post_jp.count(lb_symbol)
+        count_lb_pre_jp = pre_jp.count(lb_symbol)
+        count_lb_post_zh = post_zh.count(lb_symbol)
+        count_lb_pre_zh = pre_zh.count(lb_symbol)
         if CProblemType.丢失换行 in find_type:
-            if post_jp.count(lb_symbol) > pre_zh.count(lb_symbol):
-                problem_list.append("丢失换行(pre_zh)")
-            elif pre_jp.count(lb_symbol) > post_zh.count(lb_symbol):
-                problem_list.append("丢失换行")
+            if count_lb_post_jp > count_lb_pre_zh:
+                problem_list.append(f"丢失换行(pre_zh){count_lb_post_jp}->{count_lb_pre_zh}")
+            elif count_lb_pre_jp > count_lb_post_zh:
+                problem_list.append(f"丢失换行{count_lb_pre_jp}->{count_lb_post_zh}")
         if CProblemType.多加换行 in find_type:
-            if post_jp.count(lb_symbol) < pre_zh.count(lb_symbol):
-                problem_list.append("多加换行(pre_zh)")
-            elif pre_jp.count(lb_symbol) < post_zh.count(lb_symbol):
-                problem_list.append("多加换行")
+            if count_lb_post_jp < count_lb_pre_zh:
+                problem_list.append(f"多加换行(pre_zh){count_lb_post_jp}->{count_lb_pre_zh}")
+            elif count_lb_pre_jp < count_lb_post_zh:
+                problem_list.append(f"多加换行{count_lb_pre_jp}->{count_lb_post_zh}")
         if CProblemType.比日文长 in find_type or CProblemType.比日文长严格 in find_type:
             len_beta=1.3
             if CProblemType.比日文长严格 in find_type:

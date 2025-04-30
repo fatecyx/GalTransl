@@ -16,16 +16,16 @@ class text_coder_rpg(GTextPlugin):
     re_yinhao = re.compile(r"“(.+?)”", re.DOTALL)
 
     CODE_PATTERN_NON_EN = (
-        r"\\[A-Za-z0-9]{1,3}\[\d+\]",   # \v9[037] \v1[000]
-        r"if\(.{0,5}[vs]\[\d+\].{0,10}\)",  # if(!s[982]) if(v[982]) if(v[982] >= 1)
+        r"\\[A-Za-z]{1,3}\d{1,2}\[.{1,10}?\]",
+        r"\\[A-Z]\+",
+        r"\\\-\[[^\[\]]{0,10}\]", # \-[06]
+        r"\\img\[.+?\]",    # \img[BasicData/33Pzボタン.png]
+        r"if\([^\(\)]*?[vs]\[\d+\][^\(\)]*?\)",  # if(!s[982]) if(v[982]) if(v[982] >= 1) if(!s[762]&&s[761]&&s[763])
         r"en\(.{0,5}[vs]\[\d+\].{0,10}\)",  # en(!s[982]) en(v[982] >= 1)
         r"[/\\][a-zA-Z]{1,5}<[^\<\>]{0,10}>",  # /C<y> /C<1> \FS<xy> \FS<12>
         r"[/\\][a-zA-Z]{1,5}\[[^\[\]]{0,10}\]",  # /C[x] /C[1] \FS[xy] \FS[12]
         r"[/\\][a-zA-Z]{1,5}(?=<.{0,10}>)",  # /C<非数字非字母> 等
         r"[/\\][a-zA-Z]{1,5}(?=\[.{0,10}\])",  # /C[非数字非字母] 等
-        r"\\\-\[\d+\]",
-        r"\\img\[.+?\]",
-        r'\\[A-Z]\+?',
     )
     CODE_PATTERN_COMMON = (
         r"\\fr",  # 重置文本的改变
@@ -152,22 +152,31 @@ class text_coder_rpg(GTextPlugin):
         if matches and all(m.start() == 0 or m.end() == len(text) for m in matches):
             return text
 
+        end_tag = re.findall(r"\\c\[0+\]", text)
+        if not end_tag:
+            end_tag = "\\c[0]"
+        else:
+            end_tag = min(end_tag, key=len)
+        end_num = end_tag[3:-1]
+
         parts = []
         current_color = None
         first_color = True
         last_pos = 0
         current_tag = None
+        before_color = None
         for match in matches:
             start, end = match.span()
             # 提取当前颜色标记前的文本段
             content = text[last_pos:start]
             if content:
-                if current_color is not None and (current_color != "0" or first_color):
+                if current_color is not None and (current_color != end_num or first_color):
                     parts.append(f"{{color{current_color}: {content}}}")
                     first_color = False
                 else:
                     parts.append(content)  # 无颜色标记时直接保留
             # 更新当前颜色和位置
+            before_color = current_color
             current_color = match.group(1)
             current_tag = match.group(0)
             last_pos = end
@@ -175,10 +184,17 @@ class text_coder_rpg(GTextPlugin):
         # 处理剩余文本（最后一个颜色标记后的内容）
         remaining = text[last_pos:]
         if remaining:
-            if current_color is not None and current_color != "0":
-                parts.append(f"{{color{current_color}: {remaining}}}")
+            if current_color is not None:
+                if current_color != end_num:
+                    parts.append(f"{{color{current_color}: {remaining}}}")
+                elif not before_color:
+                    parts.append(f"{current_tag}{remaining}")
+                else:
+                    parts.append(remaining)
             else:
                 parts.append(remaining)
+        elif current_color != end_num:
+            parts.append(current_tag)
         # else:
         #     parts.append(current_tag)
         return ''.join(parts)
@@ -205,15 +221,21 @@ class text_coder_rpg(GTextPlugin):
             if original_colors != translated_colors:
                 missing.append("颜色标签不匹配")
 
+        end_tag = re.findall(r"\\c\[0+\]", pre_jp)
+        if not end_tag:
+            end_tag = "\\c[0]"
+        else:
+            end_tag = min(end_tag, key=len)
         lst_split = self.color_post_pattern.split(processed_text)
         final_parts = [lst_split[0]]
         for i in range(1, len(lst_split), 3):
             final_parts.append(f"\\c[{lst_split[i]}]")
             final_parts.append(lst_split[i+1])
             if lst_split[i+2] or i+2 == len(lst_split)-1:
-                final_parts.append(f"\\c[0]{lst_split[i+2]}")
-        if final_parts[-1] == "\\c[0]":
-            if self.color_pre_pattern.findall(pre_jp)[-1] != "0":
+                final_parts.append(f"{end_tag}{lst_split[i+2]}")
+        if final_parts[-1] == end_tag:
+            last_pre_jp = self.color_pre_pattern.findall(pre_jp)[-1]
+            if last_pre_jp != end_tag[3:-1]:
                 final_parts.pop()
         final_text = "".join(final_parts)
 
@@ -291,6 +313,7 @@ class text_coder_rpg(GTextPlugin):
         problem_list.update(missing)
         if self.替换rpg变量:
             # 替换剩余控制符
+            s_middle = self.color_post_pattern.sub("【\\2】", s_middle)
             dic_values = {}
             if '@' in tran.post_zh and '@' not in tran_pre_jp:
                 tran.post_zh = tran.post_zh.replace("@", "＠")
@@ -303,14 +326,14 @@ class text_coder_rpg(GTextPlugin):
                 m = self.re_reserved.search(item)
                 if not m:
                     if "＠" not in tran.post_zh:
-                        problem_list.add(f'丢失控制符{item}')
+                        problem_list.add(f'脚本修复：丢失控制符{item}')
                     else:
                         tran.post_zh = tran.post_zh.replace("＠", item, 1)
                 else:
                     dic_values["".join([i for i in m.groups() if i])] = m.group(0)
             if self.主人公变量 and self.主人公变量 in tran_pre_jp:
                 if '主角' not in tran.post_zh:
-                    problem_list.add(f'丢失标签{self.主人公变量}')
+                    problem_list.add(f'脚本修复：丢失标签{self.主人公变量}')
                 else:
                     tran.post_zh = tran.post_zh.replace('主角', self.主人公变量)
             # 从长到短排序
@@ -318,12 +341,14 @@ class text_coder_rpg(GTextPlugin):
 
             for k, v in dic_values.items():
                 if k not in tran.post_zh:
-                    problem_list.add(f'丢失标签{v}')
+                    problem_list.add(f'脚本修复：丢失标签{v}')
                     continue
 
                 tran.post_zh = tran.post_zh.replace(k, v)
             if "＠" in tran.post_zh:
-                problem_list.add(f'多加控制符＠')
+                problem_list.add(f'脚本修复：多加控制符＠')
+            if '{color' in tran.post_zh:
+                problem_list.add(f'脚本修复：颜色标签未恢复')
             # 恢复头尾
             tran.post_zh = s_head + tran.post_zh + s_tail
 
@@ -331,12 +356,12 @@ class text_coder_rpg(GTextPlugin):
             count_pre_jp = Counter([i.lower().strip() for i in self.re_combined.findall(tran.plugin_used[self.pname]['src']) if i.strip()])
             count_post_zh = Counter([i.lower().strip() for i in self.re_combined.findall(tran.post_zh) if i.strip()])
             for i in set(count_pre_jp.keys()) - set(count_post_zh.keys()):
-                problem_list.add(f'脚本检查 丢失{i}')
+                problem_list.add(f'脚本检查：丢失{i}')
             for i in set(count_post_zh.keys()) - set(count_pre_jp.keys()):
-                problem_list.add(f'脚本检查 多加{i}')
+                problem_list.add(f'脚本检查：多加{i}')
             for k in count_pre_jp.keys():
                 if count_pre_jp[k] != count_post_zh[k]:
-                    problem_list.add(f'脚本检查 标签数量错误{k} {count_pre_jp[k]}->{count_post_zh[k]}')
+                    problem_list.add(f'脚本检查：标签数量错误{k} {count_pre_jp[k]}->{count_post_zh[k]}')
                     #print(count_pre_jp, count_post_zh)
 
 
@@ -376,13 +401,13 @@ if __name__ == '__main__':
     coder.gtp_init({'Core': {}, 'Settings': {}}, {})
     lines = {
     #    "その艶やかな姿に\\N[3]の獣心がそそられた。\n\\N[3]は少女の動きに合わせて腰を突き上げはじめる。",
-        "\\v[029]\n\\v9[037]  \n\\v1[000]\n音量\\cself[30]": None,
+        "\\C[0]アドラ地方　　\\C[21][\\V[61] / \\V[81]]\n\\>\\C[21]取得討伐pt　1pt": None,
     }
     for pre_line, post_line in lines.items():
         s=coder.before_src_processed(CSentense(pre_line))
         # , s.post_jp, s.pre_zh, s.post_zh
         print('pre_jp', s.pre_jp)
-        print('post_jp', s.post_jp)
+        print('post_jp', json.dumps(s.post_jp, ensure_ascii=False))
         if post_line is None:
             post_line = s.post_jp
         print("---->")
