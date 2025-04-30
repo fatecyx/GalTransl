@@ -16,12 +16,16 @@ class text_coder_rpg(GTextPlugin):
     re_yinhao = re.compile(r"“(.+?)”", re.DOTALL)
 
     CODE_PATTERN_NON_EN = (
+        r"\\[A-Za-z0-9]{1,3}\[\d+\]",   # \v9[037] \v1[000]
         r"if\(.{0,5}[vs]\[\d+\].{0,10}\)",  # if(!s[982]) if(v[982]) if(v[982] >= 1)
         r"en\(.{0,5}[vs]\[\d+\].{0,10}\)",  # en(!s[982]) en(v[982] >= 1)
         r"[/\\][a-zA-Z]{1,5}<[^\<\>]{0,10}>",  # /C<y> /C<1> \FS<xy> \FS<12>
         r"[/\\][a-zA-Z]{1,5}\[[^\[\]]{0,10}\]",  # /C[x] /C[1] \FS[xy] \FS[12]
         r"[/\\][a-zA-Z]{1,5}(?=<.{0,10}>)",  # /C<非数字非字母> 等
         r"[/\\][a-zA-Z]{1,5}(?=\[.{0,10}\])",  # /C[非数字非字母] 等
+        r"\\\-\[\d+\]",
+        r"\\img\[.+?\]",
+        r'\\[A-Z]\+?',
     )
     CODE_PATTERN_COMMON = (
         r"\\fr",  # 重置文本的改变
@@ -372,7 +376,7 @@ if __name__ == '__main__':
     coder.gtp_init({'Core': {}, 'Settings': {}}, {})
     lines = {
     #    "その艶やかな姿に\\N[3]の獣心がそそられた。\n\\N[3]は少女の動きに合わせて腰を突き上げはじめる。",
-        "\\C[0]アドラ地方　　\\C[21][\\V[61] / \\V[81]]\n\\>\\C[21]取得討伐pt　1pt": None,
+        "\\v[029]\n\\v9[037]  \n\\v1[000]\n音量\\cself[30]": None,
     }
     for pre_line, post_line in lines.items():
         s=coder.before_src_processed(CSentense(pre_line))
