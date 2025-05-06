@@ -132,6 +132,15 @@ class text_common_punctuation_fixer(GTextPlugin):
 
         dst, missing = self.apply_fix_rules(src, dst, self.RULE_SAME_COUNT)
 
+        count_r = src.count('\r\n')
+        count_n = src.count("\n")
+        count_r_dst = dst.count('\r\n')
+        count_n_dst = dst.count("\n")
+        if count_r and count_r_dst != count_r:
+            if count_r == count_n:
+                dst = dst.replace('\r\n', '\n').replace('\n', '\r\n')
+            else:
+                missing.add(f"换行符\r\n错误")
         return dst, missing
 
     # 检查
@@ -198,8 +207,8 @@ if __name__ == '__main__':
     coder.gtp_init({'Core': {}, 'Settings': {}}, {})
     lines = {
     #    "その艶やかな姿に\\N[3]の獣心がそそられた。\n\\N[3]は少女の動きに合わせて腰を突き上げはじめる。",
-        "「そして『龍』が『大厄災』を鎮めて平和を齎したとしても\n　今度はシオン教の云う『龍』の姿との違いに人々は疑問を\n　持つことになる……＠＠どちらにしても世界の混乱は必至という事ね":
-            "「即便『龙』平息『大灾厄』带来和平\n　人们又会质疑其形象与锡安教描述的差异……＠＠无论如何世界必将陷入混乱",
+        "メメルを…メメルを見つけ出さなきゃ。\r\nそれまでは絶対…神殿には戻らない…っ。":
+            "必须找到梅梅尔…\n在那之前绝对…不回神殿…",
     }
     for post_jp, post_zh in lines.items():
         s = CSentense(post_jp)
