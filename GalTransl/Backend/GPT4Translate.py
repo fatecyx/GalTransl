@@ -530,11 +530,24 @@ class CGPT4Translate(BaseTranslate):
         )
         while i < len_trans_list:
             #await asyncio.sleep(1)
-            trans_list_split = (
-                trans_list_unhit[i : i + num_pre_request]
-                if (i + num_pre_request < len_trans_list)
-                else trans_list_unhit[i:]
-            )
+            # trans_list_split = (
+            #     trans_list_unhit[i : i + num_pre_request]
+            #     if (i + num_pre_request < len_trans_list)
+            #     else trans_list_unhit[i:]
+            # )
+            trans_list_split = []
+            current_length = 0
+            # 原逻辑的切片范围：取 i 到 i + num_pre_request，或到末尾
+            slice_end = i + num_pre_request if (i + num_pre_request < len_trans_list) else len_trans_list
+            for tran in trans_list_unhit[i:slice_end]:
+                if current_length + len(tran.post_jp) > 800:
+                    break
+                trans_list_split.append(tran)
+                current_length += len(tran.post_jp)
+
+            # 如果没有找到任何符合条件的元素，则强制取第一个
+            if not trans_list_split and i < len_trans_list:
+                trans_list_split = [trans_list_unhit[i]]
 
             dic_prompt = gpt_dic.gen_prompt(trans_list_split) if gpt_dic else ""
 
