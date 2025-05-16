@@ -219,6 +219,17 @@ async def doLLMTranslSingleChunk(
                 except Exception as e:
                     LOGGER.exception(f"插件 {plugin.name} 执行失败: {e}")
 
+            if projectConfig.getKey("skip_length"):
+                skip_length = projectConfig.getKey("skip_length")
+                if 0 < skip_length < len(tran.post_jp):
+                    tran.pre_zh = tran.post_jp
+                    tran.problem += "长度过长，跳过翻译"
+                    continue
+
+            if projectConfig.getKey("use_dict_for_translate"):
+                if result := gpt_dic.get_dic_word(tran.post_jp):
+                    tran.pre_zh = result
+
             if projectConfig.getFilePlugin() in ["file_galtransl_json","file_mtbench_chrf"]:
                 tran.analyse_dialogue()
             tran.post_jp = pre_dic.do_replace(tran.post_jp, tran)
@@ -230,6 +241,10 @@ async def doLLMTranslSingleChunk(
                     tran = plugin.plugin_object.after_src_processed(tran)
                 except Exception as e:
                     LOGGER.exception(f"插件 {plugin.name} 执行失败: {e}")
+
+            if projectConfig.getKey("use_dict_for_translate"):
+                if result := gpt_dic.get_dic_word(tran.post_jp):
+                    tran.pre_zh = result
 
         # 执行翻译
         await gptapi.batch_translate(

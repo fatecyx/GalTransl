@@ -241,6 +241,7 @@ class text_coder_rpg(GTextPlugin):
 
         return final_text, missing
 
+    re_ruby = re.compile(r'\\r\[([^\[\],]+),([^\[\],]*)]')
     def before_src_processed(self, tran: CSentense) -> CSentense:
         """
         This method is called before the source sentence is processed.
@@ -251,6 +252,14 @@ class text_coder_rpg(GTextPlugin):
 
         if self.主人公变量:
             tran.post_jp = tran.post_jp.replace(self.主人公变量, '主角')
+
+        lst_ruby = self.re_ruby.findall(tran.post_jp)
+        if lst_ruby:
+            tran.post_jp = self.re_ruby.sub(
+                lambda match: f"{match.group(1)}" if not match.group(2) else f"{match.group(1)}（{match.group(2)}）",
+                tran.post_jp)
+            #tran.post_jp = self.re_ruby.sub(r'【\1（\2）】', tran.post_jp)
+
         pre_jp = self.preprocess_color_tags(tran.post_jp)
         #print(pre_jp)
         tran.plugin_used[self.pname]['split'] = self.split_text_para(pre_jp)
@@ -401,7 +410,7 @@ if __name__ == '__main__':
     coder.gtp_init({'Core': {}, 'Settings': {}}, {})
     lines = {
     #    "その艶やかな姿に\\N[3]の獣心がそそられた。\n\\N[3]は少女の動きに合わせて腰を突き上げはじめる。",
-        "\\C[0]アドラ地方　　\\C[21][\\V[61] / \\V[81]]\n\\>\\C[21]取得討伐pt　1pt": None,
+        r"\r[保,ぽ]\r[田,た]\r[区,く]\r[くん,]": None,
     }
     for pre_line, post_line in lines.items():
         s=coder.before_src_processed(CSentense(pre_line))

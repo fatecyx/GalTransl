@@ -434,3 +434,12 @@ class CGptDict:
                 )
 
         return ", ".join(problem_list)
+
+    def get_dic_word(self, find_str: str):
+        for dic in self._dic_list:
+            if find_str != dic.search_word:
+                continue
+            if "/" in dic.replace_word:
+                return None
+            return dic.replace_word
+        return None
