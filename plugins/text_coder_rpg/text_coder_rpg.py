@@ -40,7 +40,7 @@ class text_coder_rpg(GTextPlugin):
         r"\\\|",  # 等待1秒 \|
         r"\\!",  # 等待按钮按下 \!
         r"\\#",  # \#
-        r"\\>",  # 在同一行显示文字 \>
+        r"\\[><]",  # 在同一行显示文字 \>
         r"\\\^",  # 显示文本后不需要等待 \^
         r"\\\\<br>",  # 换行符 \\<br>
         r"<br>",  # 换行符 <br>
@@ -234,9 +234,13 @@ class text_coder_rpg(GTextPlugin):
             if lst_split[i+2] or i+2 == len(lst_split)-1:
                 final_parts.append(f"{end_tag}{lst_split[i+2]}")
         if final_parts[-1] == end_tag:
-            last_pre_jp = self.color_pre_pattern.findall(pre_jp)[-1]
-            if last_pre_jp != end_tag[3:-1]:
+            pre_jp_lst = self.color_pre_pattern.findall(pre_jp)
+            if not pre_jp_lst:
                 final_parts.pop()
+            else:
+                last_pre_jp = pre_jp_lst[-1]
+                if last_pre_jp != end_tag[3:-1]:
+                    final_parts.pop()
         final_text = "".join(final_parts)
 
         return final_text, missing
