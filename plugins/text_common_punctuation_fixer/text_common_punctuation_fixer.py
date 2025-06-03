@@ -68,7 +68,7 @@ class text_common_punctuation_fixer(GTextPlugin):
 
         if not src or not dst:
             return dst
-
+        src = src.strip(' ')
         # 识别 src 的引号
         src_left = src[0] if src and src[0] in SYMBOL_PAIRS else ''
         src_right = src[-1] if src and src[-1] in REVERSE_SYMBOLS else ''
@@ -121,7 +121,7 @@ class text_common_punctuation_fixer(GTextPlugin):
 
         # 处理正则替换
         if not self.RE_YINHAO_STRING.search(src):
-            symbols = '『』' if '「' in dst else '「」'
+            symbols = '『』' if '『' not in dst else '「」'
             dst = self.RE_YINHAO_STRING.sub(rf'{symbols[0]}\2{symbols[1]}', dst)
         # 处理换行空格
         src_linebreaks = self.RE_LINEBREAK.findall(src)

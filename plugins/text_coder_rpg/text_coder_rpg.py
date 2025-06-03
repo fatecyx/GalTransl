@@ -144,7 +144,7 @@ class text_coder_rpg(GTextPlugin):
         return text_head+"".join(lst_head), "".join(lst_content), "".join(lst_tail)+text_tail
 
     color_pre_pattern = re.compile(r'\\c\[(\d+)\]', re.IGNORECASE)
-    color_post_pattern = re.compile(r'\{color(\d+):\s?(.*?)\}', re.DOTALL|re.IGNORECASE)
+    color_post_pattern = re.compile(r'\{color(\d+):\s?(.*?)(?<!\\)\}', re.DOTALL|re.IGNORECASE)
     def preprocess_color_tags(self, text):
         # 正则匹配颜色标记（不区分大小写）
         matches = list(self.color_pre_pattern.finditer(text))
@@ -171,7 +171,7 @@ class text_coder_rpg(GTextPlugin):
             content = text[last_pos:start]
             if content:
                 if current_color is not None and (current_color != end_num or first_color):
-                    parts.append(f"{{color{current_color}: {content}}}")
+                    parts.append(f"{{color{current_color}: {content if not content.endswith("\\") else content+' '}}}")
                     first_color = False
                 else:
                     parts.append(content)  # 无颜色标记时直接保留
@@ -414,7 +414,8 @@ if __name__ == '__main__':
     coder.gtp_init({'Core': {}, 'Settings': {}}, {})
     lines = {
     #    "その艶やかな姿に\\N[3]の獣心がそそられた。\n\\N[3]は少女の動きに合わせて腰を突き上げはじめる。",
-        r"\r[保,ぽ]\r[田,た]\r[区,く]\r[くん,]": None,
+        "\\C[16]«装備条件» \\\\C[7][\\\\I[2657]学園では装備不可]\\\\C[0]\\\\C[7][\\\\I[2658]学園外では装備不可]\\\\C[0]": "\\C[16]«装备条件» ＠\\C[7][\\＠学院内不可装备]＠\\C[0]\\\\C[7][\\＠学院外不可装备]\\\\C[0]",
+        "ここから先は立ち絵確認専用です。\n\\C[16]\\}※立ち絵確認専用衣装は装備することができません": "以下为立绘确认专用内容。\n{color16:＠※立绘确认专用服装不可实际装备}",
     }
     for pre_line, post_line in lines.items():
         s=coder.before_src_processed(CSentense(pre_line))
