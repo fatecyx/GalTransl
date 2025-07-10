@@ -171,7 +171,9 @@ class text_coder_rpg(GTextPlugin):
             content = text[last_pos:start]
             if content:
                 if current_color is not None and (current_color != end_num or first_color):
-                    parts.append(f"{{color{current_color}: {content if not content.endswith('\\') else content+' '}}}")
+                    if content.endswith('\\'):
+                        content += ' '
+                    parts.append(f"{{color{current_color}: {content}}}")
                     first_color = False
                 else:
                     parts.append(content)  # 无颜色标记时直接保留
