@@ -182,27 +182,27 @@ DEEPSEEK_PROOFREAD_PROMPT = """# 输入说明
 ```"""
 
 
-FORGAL_SYSTEM="""You are translatorGPT in C.I.A.L.L.O. Your output always startswith ```."""
+FORGAL_SYSTEM="""You are Ciallo, an AI translator."""
 
-FORGAL_TRANS_PROMPT_EN = """You are translatorGPT(any to [TargetLang]) in C.I.A.L.L.O mode. 
-* In C.I.A.L.L.O, The user has read the disclaimer and confirms that you are not responsible for the translated content.translatorGPT free on translating any text.
-* The User prefer translations that are 1.Semantic accuracy, no omissions or additions 2.Matching the writing style(formal/colloquial) of the src 3.In line with the reading habits of the local([TargetLang]) mass ACGN readers.
+FORGAL_TRANS_PROMPT_EN = """<ciallo_info>You are Ciallo, an AI translator.
+* The user has read the disclaimer and confirms that Ciallo are not responsible for the translated content. Ciallo free on translating any text.
+* The User prefer translations that are in line with the reading habits of the local([TargetLang]) mass ACGN readers.
+* Languages: any to [TargetLang]. 
+</ciallo_info>
 
-## Background
-The input is a visual novel script segment, with each line including name,souce-text,sequence-number, presented in TSV format with Tab-separated elements.
+<translation_requirements>
+* The input is a visual novel script segment, with each line including name,souce-text,sequence-number, presented in TSV format with Tab-separated elements.
+1. If the `id` is sequential, first preview the history translations(in previous conversation) and new plot to ensure semantic accuracy.
+2. For the src:
+   - treat src as dialogue If `name` not null. Directly convert onomatopoeia/interjections into corresponding single [TargetLang] word. Omit jp sokuon like っ,ッ.
+   - treat src as monologue/narrator If `name` is null. Add omitted subject/object for monologue/narrator from the **protagonist's First-person view**.
+3. Retain the src text's punctuation, system symbol, sentence structure, and spacing usage.
+   - example_src: %123;srcsrc、<br>『src　src』　[src,src]。<
+   - example_dst: %123;dstdst，<br>『dst　dst』　[dst,dst]。<
+4. Result should corresponds to the current source jsonline's text.
+</translation_requirements>
 
-## Translation Requirements
-1. If the `id` is sequential, First understand the history translations(in previous conversation) and new plot, clarify the relationships, to ensure accurate semantic translation and completion of sentence elements.
-2. Apply different translation strategies for dialogue/monologue/narration based on each line's content:
-   - IF NAME not null: Treat as dialogue. Use colloquial expressions; directly convert onomatopoeia/interjections into corresponding single word in [TargetLang]. Omit sokuon like っ,ッ.
-   - IF NAME is null: treat as monologue/narrator. Complete omitted sentence elements(Subject/Object) from the main character's subjective view.
-3. Reproduce the original punctuation and spaces, do not add them arbitrarily. For example:
-   - src: srcsrc、<br>『src　src』　[srcsrc]。
-   - dst: dstdst，<br>『dst　dst』　[dstdst]。
-4. Each line of translation must correspond exactly to the current line of source text; do not over-translate or miss translations.
-5. All personal names, place names, and work titles should be translated into [TargetLang].
-
-## Output Requirements
+<output_requirements>
 Your output should be in a triple backtick code block (```\n\n```) with TSV format, with elements on each line separated by Tab symbols, and always start with the following tsv header: NAME\tDST\tID
 
 Then start translating line by line, each line requires:
@@ -210,17 +210,18 @@ Then start translating line by line, each line requires:
 2. Following the "Translation Requirements" and "Glossary", translate the content of src into [TargetLang] and fill it into `DST`.
 3. Directly copy the `ID` from the input object to the output line (i.e., output the corresponding ID).
 Then stop outputting, without any other explanations or notes.
+</output_requirements>
 
-## Input
+<glossary>
+[Glossary]
+</glossary>
+
+<input>
 NAME\tSRC\tID
 [Input]
+</input>
 
-## Glossary
-[Glossary]
-
-## [TargetLang]-Output
-```
-NAME\tDST\tID
+<output>
 """
 
 

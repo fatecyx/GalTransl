@@ -99,7 +99,7 @@ class ForGalTranslate(BaseTranslate):
                     filename
                 ].replace("<br>", "")
                 messages.append(
-                    {"role": "user", "content": "###Input\n(...truncated history source texts...)\n### Output\n"}
+                    {"role": "user", "content": "<input>\n(...truncated history source texts...)\n</input>\n<output>\n"}
                 )
                 messages.append(
                     {"role": "assistant", "content": self.last_translations[filename]}
@@ -249,8 +249,8 @@ class ForGalTranslate(BaseTranslate):
                     i = 0 if i < 0 else i
                     while i < len(trans_list):
                         if not proofread:
-                            trans_list[i].pre_zh = "(翻译失败)"+trans_list[i].post_jp
-                            trans_list[i].post_zh = "(翻译失败)"+trans_list[i].post_jp
+                            trans_list[i].pre_zh = "(Failed)"+trans_list[i].post_jp
+                            trans_list[i].post_zh = "(Failed)"+trans_list[i].post_jp
                             trans_list[i].problem += "翻译失败"
                             trans_list[i].trans_by = f"{token.model_name}(Failed)"
                         else:
