@@ -156,9 +156,9 @@ class BaseTranslate:
         messages=[],
         temperature=0.6,
         frequency_penalty=NOT_GIVEN,
-        top_p=0.95,
-        stream=None,
-        max_tokens=None,
+        top_p=NOT_GIVEN,
+        stream=NOT_GIVEN,
+        max_tokens=NOT_GIVEN,
         reasoning_effort=NOT_GIVEN,
         file_name="",
         base_try_count=0,
@@ -208,15 +208,16 @@ class BaseTranslate:
                     async for chunk in response:
                         if not chunk.choices:
                             continue
-                        if hasattr(chunk.choices[0].delta, "reasoning_content"):
-                            lastline += chunk.choices[0].delta.reasoning_content or ""
-                        if chunk.choices[0].delta.content:
-                            result += chunk.choices[0].delta.content
-                            lastline += chunk.choices[0].delta.content
+                        if hasattr(chunk.choices[0].delta,"reasoning_content"):
+                            lastline = lastline + (chunk.choices[0].delta.reasoning_content or "")
+                        if hasattr(chunk.choices[0].delta,"content"):
+                            result = result+ (chunk.choices[0].delta.content or "")
+                            lastline = lastline + (chunk.choices[0].delta.content or "")
                         if "\n" in lastline:
                             if self.pj_config.active_workers == 1:
-                                print(lastline)
-                            lastline = ""
+                                lastline_sp=lastline.split("\n")
+                                print("\n".join(lastline_sp[:-1]))
+                                lastline = lastline_sp[-1]
                 else:
                     try:
                         result = response.choices[0].message.content
