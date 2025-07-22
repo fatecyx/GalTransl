@@ -175,7 +175,7 @@ async def get_transCache_from_json(
                         LOGGER.error(f"[cache]pre_zh为空: {line_now}")
                     continue
             # 重试失败的
-            if retry_failed and "Failed translation" in cache_dict[cache_key]["pre_zh"]:
+            if retry_failed and "(Failed)" in cache_dict[cache_key]["pre_zh"]:
                 if (
                     no_proofread or "Fail" in cache_dict[cache_key]["proofread_by"]
                 ):  # 且未校对
