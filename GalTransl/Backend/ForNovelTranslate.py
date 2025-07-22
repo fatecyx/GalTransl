@@ -334,8 +334,9 @@ class ForNovelTranslate(BaseTranslate):
                 await save_transCache_to_json(trans_list, cache_file_path)
                 transl_step_count = 0
 
+            trans_by = trans_result[0].trans_by
             LOGGER.info(
-                f"{filename}: {str(len(trans_result_list))}/{str(len_trans_list)}"
+                f"{filename}: {str(len(trans_result_list))}/{str(len_trans_list)} with {trans_by}"
             )
 
         return trans_result_list

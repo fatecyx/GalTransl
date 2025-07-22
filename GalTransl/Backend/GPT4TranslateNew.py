@@ -16,11 +16,8 @@ from GalTransl.Cache import save_transCache_to_json
 from GalTransl.Dictionary import CGptDict
 from GalTransl.Utils import extract_code_blocks, fix_quotes, fix_quotes2
 from GalTransl.Backend.Prompts import (
-    NAME_PROMPT4,
-    NAME_PROMPT4_R1,
     GPT4_SYSTEM_PROMPT,
     GPT4_TRANS_PROMPT,
-    GPT4_CONF_PROMPT,
     H_WORDS_LIST,
     DEEPSEEK_SYSTEM_PROMPT,
     DEEPSEEK_TRANS_PROMPT,
@@ -137,7 +134,7 @@ class GPT4TranslateNew(BaseTranslate):
                     filename
                 ].replace("<br>", "")
                 messages.append(
-                    {"role": "user", "content": "###Input\n(...truncated history source texts...)\n### Output\n"}
+                    {"role": "user", "content": "<input>\n(...truncated history source texts...)\n</input>\n<output>\n"}
                 )
                 messages.append(
                     {"role": "assistant", "content": self.last_translations[filename]}
@@ -307,8 +304,8 @@ class GPT4TranslateNew(BaseTranslate):
                     i = 0 if i < 0 else i
                     while i < len(trans_list):
                         if not proofread:
-                            trans_list[i].pre_zh = "(翻译失败)"+trans_list[i].post_jp
-                            trans_list[i].post_zh = "(翻译失败)"+trans_list[i].post_jp
+                            trans_list[i].pre_zh = "(Failed)"+trans_list[i].post_jp
+                            trans_list[i].post_zh = "(Failed)"+trans_list[i].post_jp
                             trans_list[i].problem += "翻译失败"
                             trans_list[i].trans_by = f"{token.model_name}(Failed)"
                         else:
@@ -387,8 +384,9 @@ class GPT4TranslateNew(BaseTranslate):
                 await save_transCache_to_json(trans_list, cache_file_path)
                 transl_step_count = 0
 
+            trans_by = trans_result[0].trans_by
             LOGGER.info(
-                f"{filename}: {str(len(trans_result_list))}/{str(len_trans_list)}"
+                f"{filename}: {str(len(trans_result_list))}/{str(len_trans_list)} with {trans_by}"
             )
 
         return trans_result_list
