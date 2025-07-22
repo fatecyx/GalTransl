@@ -109,9 +109,9 @@ async def get_transCache_from_json(
                     line_next = "None" if line_next == "" else line_next
                     cache_dict[line_priv + line_now + line_next] = cache
             except Exception as e:
-                f.close()
-                LOGGER.error(get_text("cache_read_error", GT_LANG, cache_file_path=cache_file_path))
-                raise e
+                LOGGER.error(str(e))
+                LOGGER.error(get_text("cache_read_error", GT_LANG, cache_file_path))
+                return [],trans_list
 
     for tran in trans_list:
         # 忽略jp为空的句子
