@@ -256,7 +256,7 @@ class BaseTranslate:
                         )
                     except:
                         LOGGER.error(
-                            f"[API Error]{token_info}{file_name} {e}, sleeping {sleep_time}s"
+                            f"[API Error]{token_info}{file_name} {e} sleeping {sleep_time}s"
                         )
 
                 await asyncio.sleep(sleep_time)
