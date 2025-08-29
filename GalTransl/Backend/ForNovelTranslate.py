@@ -33,13 +33,13 @@ class ForNovelTranslate(BaseTranslate):
         token_pool: COpenAITokenPool,
     ):
         super().__init__(config, eng_type, proxy_pool, token_pool)
+        self.trans_prompt = FORNOVEL_TRANS_PROMPT_EN
+        self.system_prompt = FORGAL_SYSTEM
         # enhance_jailbreak
         if val := config.getKey("gpt.enhance_jailbreak"):
             self.enhance_jailbreak = val
         else:
             self.enhance_jailbreak = False
-        self.trans_prompt = FORNOVEL_TRANS_PROMPT_EN
-        self.system_prompt = FORGAL_SYSTEM
         self.last_translations = {}
         self.init_chatbot(eng_type=eng_type, config=config)
         self._set_temp_type("precise")

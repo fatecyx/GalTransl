@@ -37,6 +37,11 @@ class GPT4TranslateNew(BaseTranslate):
         token_pool: COpenAITokenPool,
     ):
         super().__init__(config, eng_type, proxy_pool, token_pool)
+        self.trans_prompt = GPT4_TRANS_PROMPT
+        self.system_prompt = GPT4_SYSTEM_PROMPT
+        if "r1" in eng_type:
+            self.trans_prompt = DEEPSEEK_TRANS_PROMPT
+            self.system_prompt = DEEPSEEK_SYSTEM_PROMPT
         # enhance_jailbreak
         if val := config.getKey("gpt.enhance_jailbreak"):
             self.enhance_jailbreak = val
@@ -46,11 +51,6 @@ class GPT4TranslateNew(BaseTranslate):
         self.last_translations = {}
         self.init_chatbot(eng_type=eng_type, config=config)
         self._set_temp_type("precise")
-        self.trans_prompt = GPT4_TRANS_PROMPT
-        self.system_prompt = GPT4_SYSTEM_PROMPT
-        if "r1" in eng_type:
-            self.trans_prompt = DEEPSEEK_TRANS_PROMPT
-            self.system_prompt = DEEPSEEK_SYSTEM_PROMPT
 
         pass
 
