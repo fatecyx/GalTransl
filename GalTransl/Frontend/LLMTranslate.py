@@ -1,20 +1,15 @@
 from typing import List, Dict, Any, Optional, Union, Tuple
-from os import makedirs,cpu_count, sep as os_sep
-from os.path import (
-    join as joinpath,
-    exists as isPathExists,
-    dirname
-)
-from tqdm.asyncio import tqdm as atqdm
+from os import makedirs, cpu_count, sep as os_sep
+from os.path import join as joinpath, exists as isPathExists, dirname
+from alive_progress import alive_bar
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
 from time import time
 import asyncio
 from dataclasses import dataclass
 from GalTransl import LOGGER
+from GalTransl.i18n import get_text, GT_LANG
+from GalTransl.Cache import get_transCache_from_json
 
-
-from GalTransl.Backend.RebuildTranslate import CRebuildTranslate
 from GalTransl.ConfigHelper import initDictList, CProjectConfig
 from GalTransl.Dictionary import CGptDict, CNormalDic
 from GalTransl.Problem import find_problems
@@ -24,7 +19,45 @@ from GalTransl.CSerialize import update_json_with_transList, save_json
 from GalTransl.Dictionary import CNormalDic, CGptDict
 from GalTransl.ConfigHelper import CProjectConfig, initDictList
 from GalTransl.Utils import get_file_list
-from GalTransl.CSplitter import SplitChunkMetadata, DictionaryCombiner
+from GalTransl.CSplitter import (
+    SplitChunkMetadata,
+    DictionaryCombiner,
+    EqualPartsSplitter,
+)
+
+
+async def update_progress_title(
+    bar, semaphore, workersPerProject: int, projectConfig: CProjectConfig
+):
+    """异步任务，用于动态更新 alive_bar 的标题以显示活动工作线程数。"""
+    base_title = "翻译进度"
+    while True:
+        try:
+            # 计算当前活动的任务数
+            # semaphore.acquire() 会减少 _value，semaphore.release() 会增加 _value
+            # 因此，活动任务数 = 总容量 - 当前可用容量
+            active_workers = workersPerProject - semaphore._value
+            # 确保 active_workers 不会是负数（以防万一）
+            active_workers = max(0, active_workers)
+            if active_workers == 0:
+                projectConfig.active_workers = workersPerProject
+            else:
+                projectConfig.active_workers = active_workers
+            # 更新标题
+            new_title = f"{base_title} [{active_workers}/{workersPerProject} 并发]"
+            bar.title(new_title)
+
+            # 每隔一段时间更新一次，避免过于频繁
+            await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            # 当任务被取消时，设置最终标题并退出循环
+            bar.title(f"{base_title} [处理完成]")
+            break
+        except Exception as e:
+            # 记录任何其他异常并停止更新
+            LOGGER.error(f"更新进度条标题时出错: {e}")
+            bar.title(f"{base_title} [更新出错]")
+            break
 
 
 async def doLLMTranslate(
@@ -47,16 +80,107 @@ async def doLLMTranslate(
     input_splitter = projectConfig.input_splitter
     SplitChunkMetadata.clear_file_finished_chunk()
     total_chunks = []
+    projectConfig.active_workers = 1
 
     makedirs(output_dir, exist_ok=True)
     makedirs(cache_dir, exist_ok=True)
 
-    # 初始化人名替换表
-    name_replaceDict_path = joinpath(projectConfig.getProjectDir(), "人名替换表.csv")
-    if isPathExists(name_replaceDict_path):
-        projectConfig.name_replaceDict = load_name_table(name_replaceDict_path)
+    # 语言设置
+    if val := projectConfig.getKey("language"):
+        sp = val.split("2")
+        projectConfig.source_lang = sp[0]
+        projectConfig.target_lang = sp[-1]
 
-    # 初始化字典
+    # 获取待翻译文件列表
+    file_list = get_file_list(projectConfig.getInputPath())
+    if not file_list:
+        raise RuntimeError(f"{projectConfig.getInputPath()}中没有待翻译的文件")
+
+    # 按文件名自然排序（处理数字部分）
+    import re
+
+    def natural_sort_key(s):
+        return [
+            int(text) if text.isdigit() else text.lower()
+            for text in re.split(r"(\d+)", s)
+        ]
+
+    file_list.sort(key=natural_sort_key)
+
+    all_jsons = []
+    # 读取所有文件获得total_chunks列表
+    with ThreadPoolExecutor(max_workers=cpu_count()) as executor:
+        future_to_file = {
+            executor.submit(fplugins_load_file, file_path, fPlugins): file_path
+            for file_path in file_list
+        }
+        for future in as_completed(future_to_file):
+            file_path = future_to_file[future]
+            try:
+                json_list, save_func = future.result()
+                projectConfig.file_save_funcs[file_path] = save_func
+                total_chunks.extend(input_splitter.split(json_list, file_path))
+                if eng_type == "GenDic":
+                    all_jsons.extend(json_list)
+            except Exception as exc:
+                LOGGER.error(get_text("file_processing_error", GT_LANG, file_path, exc))
+
+    if "dump-name" in eng_type:
+        await dump_name_table_from_chunks(total_chunks, projectConfig)
+        return True
+
+    if eng_type == "GenDic":
+        gptapi = await init_gptapi(projectConfig)
+        await gptapi.batch_translate(all_jsons)
+        return True
+
+    async def run_task(task_func):
+        try:
+            result = await task_func
+            return result
+        except Exception as e:
+            LOGGER.error(get_text("task_execution_failed", GT_LANG, e),exc_info=True)
+            return None
+
+    soryBy = projectConfig.getKey("sortBy", "name")
+    if soryBy == "name":
+        # 按文件分组chunks，保持文件内部的顺序
+        file_chunks = {}
+        for chunk in total_chunks:
+            if chunk.file_path not in file_chunks:
+                file_chunks[chunk.file_path] = []
+            file_chunks[chunk.file_path].append(chunk)
+
+        # 确保每个文件内的chunks按索引排序
+        for file_path in file_chunks:
+            file_chunks[file_path].sort(key=lambda x: x.chunk_index)
+
+        # 按照file_list的顺序处理文件，保持文件间的顺序
+        ordered_chunks = []
+        for file_path in file_list:
+            if file_path in file_chunks:
+                ordered_chunks.extend(file_chunks[file_path])
+    elif soryBy == "size":
+        total_chunks.sort(key=lambda x: x.chunk_size, reverse=True)
+        ordered_chunks = total_chunks
+
+    total_lines = sum([len(chunk.trans_list) for chunk in ordered_chunks])
+
+    # 初始生成name替换表
+    name_replaceDict_path_xlsx = joinpath(
+        projectConfig.getProjectDir(), "name替换表.xlsx"
+    )
+    name_replaceDict_path_csv = joinpath(
+        projectConfig.getProjectDir(), "name替换表.csv"
+    )
+    name_replaceDict_firstime = False
+    if not isPathExists(name_replaceDict_path_csv) and not isPathExists(
+        name_replaceDict_path_xlsx
+    ):
+        await dump_name_table_from_chunks(total_chunks, projectConfig)
+        name_replaceDict_firstime = True
+    
+    # 载入字典
     projectConfig.pre_dic = CNormalDic(
         initDictList(pre_dic_list, default_dic_dir, project_dir)
     )
@@ -66,111 +190,68 @@ async def doLLMTranslate(
     projectConfig.gpt_dic = CGptDict(
         initDictList(gpt_dic_list, default_dic_dir, project_dir)
     )
-    if projectConfig.getDictCfgSection().get("sortPrePostDict", False):
+
+    if projectConfig.getDictCfgSection().get("sortDict", True):
         projectConfig.pre_dic.sort_dic()
         projectConfig.post_dic.sort_dic()
+        projectConfig.gpt_dic.sort_dic()
 
-    # 获取待翻译文件列表
-    file_list = get_file_list(projectConfig.getInputPath())
-    if not file_list:
-        raise RuntimeError(f"{projectConfig.getInputPath()}中没有待翻译的文件")
-    
-    # 按文件名自然排序（处理数字部分）
-    import re
-    def natural_sort_key(s):
-        return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
-    
-    file_list.sort(key=natural_sort_key)
-    
-    # 读取所有文件获得total_chunks列表
-    with ThreadPoolExecutor(max_workers=cpu_count()) as executor:
-        future_to_file = {
-            executor.submit(fplugins_load_file, file_path, fPlugins): file_path
-            for file_path in file_list
-        }
-
-        with tqdm(total=len(file_list), desc="读入文件", dynamic_ncols=True) as pbar:
-            for future in as_completed(future_to_file):
-                file_path = future_to_file[future]
-                try:
-                    json_list, save_func = future.result()
-                    projectConfig.file_save_funcs[file_path] = save_func
-                    total_chunks.extend(input_splitter.split(json_list, file_path))
-                except Exception as exc:
-                    LOGGER.error(f"处理文件 {file_path} 时发生错误: {exc}")
-                finally:
-                    pbar.update(1)
-
-    if "dump-name" in eng_type:
-        dump_name_table_from_chunks(total_chunks, projectConfig)
-        return True
-
-    progress_bar = atqdm(
-        total=len(total_chunks),
-        desc="Processing chunks/files",
-        dynamic_ncols=True,
-        leave=False,
-    )
-
-    async def run_task(task_func):
-        try:
-            result = await task_func
-            progress_bar.update(1)
-            # progress_bar.set_postfix(
-            #     file=result[3].split(os_sep)[-1],
-            #     chunk=f"{result[4].start_index}-{result[4].end_index}",
-            # )
-            return result
-        except Exception as e:
-            LOGGER.exception(f"任务执行失败: {e}")
-            return None
-
-    soryBy=projectConfig.getKey("sortBy","name")
-    if soryBy=="name":
-        # 按文件分组chunks，保持文件内部的顺序
-        file_chunks = {}
-        for chunk in total_chunks:
-            if chunk.file_path not in file_chunks:
-                file_chunks[chunk.file_path] = []
-            file_chunks[chunk.file_path].append(chunk)
-        
-        # 确保每个文件内的chunks按索引排序
-        for file_path in file_chunks:
-            file_chunks[file_path].sort(key=lambda x: x.chunk_index)
-        
-        # 按照file_list的顺序处理文件，保持文件间的顺序
-        ordered_chunks = []
-        for file_path in file_list:
-            if file_path in file_chunks:
-                ordered_chunks.extend(file_chunks[file_path])
-    elif soryBy=="size":
-        total_chunks.sort(key=lambda x: x.chunk_size, reverse=True)
-        ordered_chunks = total_chunks
-        
-    
-    # 创建任务队列，保持顺序但允许并行执行
-    all_tasks = []
-    for chunk in ordered_chunks:
-        task = run_task(
-            doLLMTranslSingleChunk(
-                semaphore,
-                split_chunk=chunk,
-                projectConfig=projectConfig,
-            )
+    # 载入name替换表
+    if isPathExists(name_replaceDict_path_csv):
+        projectConfig.name_replaceDict = load_name_table(
+            name_replaceDict_path_csv, name_replaceDict_firstime,total_chunks,projectConfig
         )
-        all_tasks.append(task)
-    
-    # 使用有序执行策略
-    # 使用信号量控制并发数量，让任务在worker可用时立即执行
-    await asyncio.gather(*all_tasks)
-    
-    progress_bar.close()
+    elif isPathExists(name_replaceDict_path_xlsx):
+        projectConfig.name_replaceDict = load_name_table(
+            name_replaceDict_path_xlsx, name_replaceDict_firstime,total_chunks,projectConfig
+        )
+
+    # 初始化共享的 gptapi 实例
+    gptapi = await init_gptapi(projectConfig)
+
+    title_update_task = None  # 初始化任务变量
+
+    with alive_bar(
+        total=total_lines, title="翻译进度", unit=" line", enrich_print=False, dual_line=True,length=30
+    ) as bar:
+        projectConfig.bar = bar
+
+        # 启动后台任务来更新进度条标题
+        title_update_task = asyncio.create_task(
+            update_progress_title(bar, semaphore, workersPerProject, projectConfig)
+        )
+
+        # 创建所有翻译任务
+        all_tasks = []
+        for chunk in ordered_chunks:
+            all_tasks.append(
+                doLLMTranslSingleChunk(
+                    semaphore,
+                    split_chunk=chunk,
+                    projectConfig=projectConfig,
+                    gptapi=gptapi,  # 传递共享的 gptapi 实例
+                )
+            )
+
+        try:
+            # 使用信号量控制并发数量，同时启动所有翻译任务
+            await asyncio.gather(*[run_task(task) for task in all_tasks])
+        finally:
+            # 确保无论 gather 成功还是失败，都取消标题更新任务
+            if title_update_task:
+                title_update_task.cancel()
+                # 等待任务实际被取消（可选，但有助于确保清理）
+                try:
+                    await title_update_task
+                except asyncio.CancelledError:
+                    pass  # 捕获预期的取消错误
 
 
 async def doLLMTranslSingleChunk(
     semaphore: asyncio.Semaphore,
     split_chunk: SplitChunkMetadata,
     projectConfig: CProjectConfig,
+    gptapi: Any,  # 添加 gptapi 参数
 ) -> Tuple[bool, List, List, str, SplitChunkMetadata]:
 
     async with semaphore:
@@ -198,12 +279,8 @@ async def doLLMTranslSingleChunk(
             cache_dir,
             file_name + (f"_{file_index}" if total_splits > 1 else ""),
         )
-        print("\n", flush=True)
         part_info = f" (part {file_index+1}/{total_splits})" if total_splits > 1 else ""
-        LOGGER.info(f"开始翻译 {file_name}{part_info}, 引擎类型: {eng_type}")
-
-        gptapi = await init_gptapi(projectConfig)
-
+        LOGGER.info(f">>> 开始翻译 (project_dir){split_chunk.file_path.replace(proj_dir,'')}")
         LOGGER.debug(f"文件 {file_name} 分块 {file_index+1}/{total_splits}:")
         LOGGER.debug(f"  开始索引: {split_chunk.start_index}")
         LOGGER.debug(f"  结束索引: {split_chunk.end_index}")
@@ -217,7 +294,9 @@ async def doLLMTranslSingleChunk(
                 try:
                     tran = plugin.plugin_object.before_src_processed(tran)
                 except Exception as e:
-                    LOGGER.exception(f"插件 {plugin.name} 执行失败: {e}")
+                    LOGGER.error(
+                        get_text("plugin_execution_failed", GT_LANG, plugin.name, e)
+                    )
 
             if projectConfig.getKey("skip_length"):
                 skip_length = projectConfig.getKey("skip_length")
@@ -230,9 +309,15 @@ async def doLLMTranslSingleChunk(
                 if result := gpt_dic.get_dic_word(tran.post_jp):
                     tran.pre_zh = result
 
-            if projectConfig.getFilePlugin() in ["file_galtransl_json","file_mtbench_chrf"]:
-                tran.analyse_dialogue()
+            if projectConfig.getFilePlugin() in [
+                "file_galtransl_json",
+                "file_mtbench_aio",
+            ]:
+                if projectConfig.select_translator not in ["ForNovel"]:
+                    tran.analyse_dialogue()
+
             tran.post_jp = pre_dic.do_replace(tran.post_jp, tran)
+
             if projectConfig.getDictCfgSection("usePreDictInName"):
                 if isinstance(tran.speaker, str) and isinstance(tran._speaker, str):
                     tran.speaker = pre_dic.do_replace(tran.speaker, tran)
@@ -240,41 +325,56 @@ async def doLLMTranslSingleChunk(
                 try:
                     tran = plugin.plugin_object.after_src_processed(tran)
                 except Exception as e:
-                    LOGGER.exception(f"插件 {plugin.name} 执行失败: {e}")
+                    LOGGER.error(
+                        get_text("plugin_execution_failed", GT_LANG, plugin.name, e)
+                    )
 
             if projectConfig.getKey("use_dict_for_translate"):
                 if result := gpt_dic.get_dic_word(tran.post_jp):
                     tran.pre_zh = result
 
-        # 执行翻译
-        await gptapi.batch_translate(
-            file_name,
-            cache_file_path,
+        translist_hit, translist_unhit = await get_transCache_from_json(
             split_chunk.trans_list,
-            projectConfig.getKey("gpt.numPerRequestTranslate"),
+            cache_file_path,
             retry_failed=projectConfig.getKey("retranslFail"),
-            gpt_dic=gpt_dic,
+            proofread=False,
             retran_key=projectConfig.getKey("retranslKey"),
+            eng_type=eng_type,
         )
 
-        # 执行校对（如果启用）
-        if projectConfig.getKey("gpt.enableProofRead"):
-            if (
-                "newbing" in gptapi.__class__.__name__.lower()
-                or "gpt4" in gptapi.__class__.__name__.lower()
-            ):
-                await gptapi.batch_translate(
-                    file_name,
-                    cache_file_path,
-                    split_chunk.trans_list,
-                    projectConfig.getKey("gpt.numPerRequestProofRead"),
-                    retry_failed=projectConfig.getKey("retranslFail"),
-                    gpt_dic=gpt_dic,
-                    proofread=True,
-                    retran_key=projectConfig.getKey("retranslKey"),
-                )
-            else:
-                LOGGER.warning("当前引擎不支持校对，跳过校对步骤")
+        if len(translist_hit) > 0:
+            projectConfig.bar(len(translist_hit), skipped=True) # 更新进度条
+
+        if len(translist_unhit) > 0:
+            # 执行翻译
+            await gptapi.batch_translate(
+                file_name + (f"_{file_index}" if total_splits > 1 else ""),
+                cache_file_path,
+                split_chunk.trans_list,
+                projectConfig.getKey("gpt.numPerRequestTranslate"),
+                retry_failed=projectConfig.getKey("retranslFail"),
+                gpt_dic=gpt_dic,
+                retran_key=projectConfig.getKey("retranslKey"),
+                translist_hit=translist_hit,
+                translist_unhit=translist_unhit,
+            )
+
+            # 执行校对（如果启用）
+            if projectConfig.getKey("gpt.enableProofRead"):
+                if "gpt4" in eng_type:
+                    await gptapi.batch_translate(
+                        file_name,
+                        cache_file_path,
+                        split_chunk.trans_list,
+                        projectConfig.getKey("gpt.numPerRequestProofRead"),
+                        retry_failed=projectConfig.getKey("retranslFail"),
+                        gpt_dic=gpt_dic,
+                        proofread=True,
+                        retran_key=projectConfig.getKey("retranslKey"),
+                    )
+                else:
+                    LOGGER.warning("当前引擎不支持校对，跳过校对步骤")
+            gptapi.clean_up()
 
         # 翻译后处理
         for tran in split_chunk.trans_list:
@@ -282,35 +382,30 @@ async def doLLMTranslSingleChunk(
                 try:
                     tran = plugin.plugin_object.before_dst_processed(tran)
                 except Exception as e:
-                    LOGGER.exception(f" 插件 {plugin.name} 执行失败: {e}")
+                    LOGGER.error(f" 插件 {plugin.name} 执行失败: {e}", exc_info=True)
+
             tran.recover_dialogue_symbol()
             tran.post_zh = post_dic.do_replace(tran.post_zh, tran)
-            if projectConfig.getDictCfgSection("usePostDictInName"):
-                if tran._speaker:
-                    if isinstance(tran.speaker, list) and isinstance(
-                        tran._speaker, list
-                    ):
-                        tran._speaker = [
-                            post_dic.do_replace(s, tran, True) for s in tran.speaker
-                        ]
-                    elif isinstance(tran.speaker, str) and isinstance(
-                        tran._speaker, str
-                    ):
-                        tran._speaker = post_dic.do_replace(tran.speaker, tran, True)
+
             for plugin in tPlugins:
                 try:
                     tran = plugin.plugin_object.after_dst_processed(tran)
                 except Exception as e:
-                    LOGGER.exception(f"插件 {plugin.name} 执行失败: {e}")
+                    LOGGER.error(
+                        get_text("plugin_execution_failed", GT_LANG, plugin.name, e)
+                    )
 
         et = time()
-        LOGGER.info(f"文件 {file_name}{part_info} 翻译完成，用时 {et-st:.3f}s.")
-        gptapi.clean_up()
+        LOGGER.info(
+            get_text(
+                "file_translation_completed", GT_LANG, file_name, part_info, et - st
+            )
+        )
 
         split_chunk.update_file_finished_chunk()
         # 检查是否该文件的所有chunk都翻译完成
         if split_chunk.is_file_finished():
-            LOGGER.debug(f"文件 {file_name} 的所有chunk都翻译完成")
+            LOGGER.debug(get_text("file_chunks_completed", GT_LANG, file_name))
             await postprocess_results(
                 split_chunk.get_file_finished_chunks(), projectConfig
             )
@@ -341,7 +436,7 @@ async def postprocess_results(
 
         if eng_type != "rebuildr":
             find_problems(trans_list, projectConfig, gpt_dic)
-            save_transCache_to_json(trans_list, cache_file_path, post_save=True)
+            await save_transCache_to_json(trans_list, cache_file_path, post_save=True)
 
     # 使用output_combiner合并结果，即使只有一个结果
     all_trans_list, all_json_list = DictionaryCombiner.combine(resultChunks)
@@ -356,7 +451,7 @@ async def postprocess_results(
         )
         makedirs(dirname(output_file_path), exist_ok=True)
         save_func(output_file_path, final_result)
-        LOGGER.info(f"已保存文件: {output_file_path}")  # 添加保存确认日志
+        LOGGER.info(f"+++ 结果保存 (project_dir){output_file_path.replace(proj_dir,'')}")  # 添加保存确认日志
 
 
 async def init_gptapi(
@@ -381,20 +476,27 @@ async def init_gptapi(
     eng_type = projectConfig.select_translator
 
     match eng_type:
-        case "ForGal":
+        case "ForGal-tsv":
             from GalTransl.Backend.ForGalTranslate import ForGalTranslate
             return ForGalTranslate(projectConfig, eng_type, proxyPool, tokenPool)
-        case "gpt4" | "gpt4-turbo" | "r1":
-            from GalTransl.Backend.GPT4Translate import CGPT4Translate
-            return CGPT4Translate(projectConfig, eng_type, proxyPool, tokenPool)
-        case "sakura-009" | "sakura-v1.0" | "galtransl-v2.5" | "galtransl-v3":
+        case "ForNovel":
+            from GalTransl.Backend.ForNovelTranslate import ForNovelTranslate
+            return ForNovelTranslate(projectConfig, eng_type, proxyPool, tokenPool)
+        case "ForGal-json" | "r1":
+            from GalTransl.Backend.GPT4TranslateNew import GPT4TranslateNew
+            return GPT4TranslateNew(projectConfig, eng_type, proxyPool, tokenPool)
+        case "sakura-v1.0" | "galtransl-v3":
             from GalTransl.Backend.SakuraTranslate import CSakuraTranslate
             sakura_endpoint = await sakuraEndpointQueue.get()
             if sakuraEndpointQueue is None:
                 raise ValueError(f"Endpoint is required for engine type {eng_type}")
             return CSakuraTranslate(projectConfig, eng_type, sakura_endpoint, proxyPool)
         case "rebuildr" | "rebuilda" | "dump-name":
+            from GalTransl.Backend.RebuildTranslate import CRebuildTranslate
             return CRebuildTranslate(projectConfig, eng_type)
+        case "GenDic":
+            from GalTransl.Backend.GenDic import GenDic
+            return GenDic(projectConfig, eng_type, proxyPool, tokenPool)
         case _:
             raise ValueError(f"不支持的翻译引擎类型 {eng_type}")
 
@@ -420,7 +522,7 @@ def fplugins_load_file(file_path: str, fPlugins: list) -> Tuple[List[Dict], Any]
                 f"插件 {getattr(plugin, 'name', 'Unknown')} 读取文件 {file_path} 出错: {e}"
             )
 
-    assert result is not None, f"文件 {file_path} 无法加载"
+    assert result is not None, get_text("file_load_failed", GT_LANG, file_path)
 
     assert isinstance(result, list), f"文件 {file_path} 不是列表"
 

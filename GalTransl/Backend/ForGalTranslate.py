@@ -1,22 +1,27 @@
 import json, time, asyncio, os, traceback, re
 from opencc import OpenCC
 from typing import Optional
-from tqdm.contrib.logging import logging_redirect_tqdm
-from tqdm.asyncio import tqdm as atqdm
+
 from GalTransl.COpenAI import COpenAITokenPool
 from GalTransl.ConfigHelper import CProxyPool
 from GalTransl import LOGGER, LANG_SUPPORTED, TRANSLATOR_DEFAULT_ENGINE
+from GalTransl.i18n import get_text, GT_LANG
 from sys import exit, stdout
 from GalTransl.ConfigHelper import (
     CProjectConfig,
 )
 from random import choice
 from GalTransl.CSentense import CSentense, CTransList
-from GalTransl.Cache import get_transCache_from_json_new, save_transCache_to_json
+from GalTransl.Cache import save_transCache_to_json
 from GalTransl.Dictionary import CGptDict
 from GalTransl.Utils import extract_code_blocks, fix_quotes2
-from GalTransl.Backend.Prompts import SMARTGAL_BETA_SYSTEM, SMARTGAL_BETA_TRANS_PROMPT
+from GalTransl.Backend.Prompts import (
+    FORGAL_SYSTEM,
+    FORGAL_TRANS_PROMPT_EN,
+    H_WORDS_LIST,
+)
 from GalTransl.Backend.BaseTranslate import BaseTranslate
+from openai._types import NOT_GIVEN
 
 
 class ForGalTranslate(BaseTranslate):
@@ -28,252 +33,143 @@ class ForGalTranslate(BaseTranslate):
         proxy_pool: Optional[CProxyPool],
         token_pool: COpenAITokenPool,
     ):
-        """
-        根据提供的类型、配置、API 密钥和代理设置初始化 Chatbot 对象。
-
-        Args:
-            config (dict, 可选): 使用 非官方API 时提供 的配置字典。默认为空字典。
-            apikey (str, 可选): 使用 官方API 时的 API 密钥。默认为空字符串。
-            proxy (str, 可选): 使用 官方API 时的代理 URL，非官方API的代理写在config里。默认为空字符串。
-
-        Returns:
-            None
-        """
-        self.eng_type = eng_type
-        self.last_file_name = ""
-        self.restore_context_mode = config.getKey("gpt.restoreContextMode")
-        self.retry_count = 0
-        # 保存间隔
-        if val := config.getKey("save_steps"):
-            self.save_steps = val
-        else:
-            self.save_steps = 1
-        # 记录确信度
-        if val := config.getKey("gpt.recordConfidence"):
-            self.record_confidence = val
-        else:
-            self.record_confidence = False
-        # 语言设置
-        if val := config.getKey("language"):
-            sp = val.split("2")
-            self.source_lang = sp[0]
-            self.target_lang = sp[1]
-        elif val := config.getKey("sourceLanguage"):  # 兼容旧版本配置
-            self.source_lang = val
-            self.target_lang = config.getKey("targetLanguage")
-        else:
-            self.source_lang = "ja"
-            self.target_lang = "zh-cn"
-        if self.source_lang not in LANG_SUPPORTED.keys():
-            raise ValueError("错误的源语言代码：" + self.source_lang)
-        else:
-            self.source_lang = LANG_SUPPORTED[self.source_lang]
-        if self.target_lang not in LANG_SUPPORTED.keys():
-            raise ValueError("错误的目标语言代码：" + self.target_lang)
-        else:
-            self.target_lang = LANG_SUPPORTED[self.target_lang]
-        # 429等待时间
-        if val := config.getKey("gpt.tooManyRequestsWaitTime"):
-            self.wait_time = val
-        else:
-            self.wait_time = 60
-        # 挥霍token模式
-        if val := config.getKey("gpt.fullContextMode"):
-            self.full_context_mode = val
-        else:
-            self.full_context_mode = False
-        # 跳过重试
-        if val := config.getKey("skipRetry"):
-            self.skipRetry = val
-        else:
-            self.skipRetry = False
-        # 跳过h
-        if val := config.getKey("skipH"):
-            self.skipH = val
-        else:
-            self.skipH = False
+        super().__init__(config, eng_type, proxy_pool, token_pool)
+        self.trans_prompt = FORGAL_TRANS_PROMPT_EN
+        self.system_prompt = FORGAL_SYSTEM
         # enhance_jailbreak
         if val := config.getKey("gpt.enhance_jailbreak"):
             self.enhance_jailbreak = val
         else:
             self.enhance_jailbreak = False
-        # 流式输出模式
-        if val := config.getKey("gpt.streamOutputMode"):
-            self.streamOutputMode = val
-        else:
-            self.streamOutputMode = False
-        if val := config.getKey("workersPerProject"):  # 多线程关闭流式输出
-            if val > 1:
-                self.streamOutputMode = False
-
-        self.tokenProvider = token_pool
-        if config.getKey("internals.enableProxy") == True:
-            self.proxyProvider = proxy_pool
-        else:
-            self.proxyProvider = None
-
-        self._current_temp_type = ""
-
-        self.init_chatbot(eng_type=eng_type, config=config)  # 模型选择
-
+        self.last_translations = {}
+        self.init_chatbot(eng_type=eng_type, config=config)
         self._set_temp_type("precise")
-
-        if self.target_lang == "Simplified_Chinese":
-            self.opencc = OpenCC("t2s.json")
-        elif self.target_lang == "Traditional_Chinese":
-            self.opencc = OpenCC("s2tw.json")
 
         pass
 
-    def init_chatbot(self, eng_type, config):
-        if "GPT4" in config.projectConfig["backendSpecific"]:  # 兼容旧版
-            section_name = "GPT4"
-        else:
-            section_name = "OpenAI-Compatible"
-        eng_name = config.getBackendConfigSection(section_name).get(
-            "rewriteModelName", TRANSLATOR_DEFAULT_ENGINE[eng_type]
-        )
-
-        from GalTransl.Backend.revChatGPT.V3 import Chatbot as ChatbotV3
-
-        self.token = self.tokenProvider.getToken()
-        eng_name = "deepseek-chat" if eng_name == "" else eng_name
-        system_prompt = SMARTGAL_BETA_SYSTEM
-        trans_prompt = SMARTGAL_BETA_TRANS_PROMPT
-        # proofread_prompt = GPT4Turbo_PROOFREAD_PROMPT
-
-        base_path = "/v1" if not re.search(r"/v\d+$", self.token.domain) else ""
-        self.chatbot = ChatbotV3(
-            api_key=self.token.token,
-            temperature=0.4,
-            frequency_penalty=0.2,
-            system_prompt=system_prompt,
-            engine=eng_name,
-            api_address=f"{self.token.domain}{base_path}/chat/completions",
-            timeout=30,
-            response_format="json",
-        )
-        self.chatbot.trans_prompt = trans_prompt
-        # self.chatbot.proofread_prompt = proofread_prompt
-        self.chatbot.update_proxy(
-            self.proxyProvider.getProxy().addr if self.proxyProvider else None
-        )
-
-    async def translate(self, trans_list: CTransList, gptdict="", proofread=False):
+    async def translate(
+        self, trans_list: CTransList, gptdict="", proofread=False, filename=""
+    ):
         input_list = []
-        for i, trans in enumerate(trans_list):
+        tmp_enhance_jailbreak = False
+        n_symbol = ""
+        start_idx = trans_list[0].index
+        end_idx = trans_list[-1].index
+        idx_tip = ""
+        if start_idx != end_idx:
+            idx_tip = f"{start_idx}~{end_idx}"
+        else:
+            idx_tip = start_idx
 
-            speaker = trans.speaker if trans.speaker else "null"
+        for i, trans in enumerate(trans_list):
+            speaker_name = trans.get_speaker_name()
+            speaker = speaker_name if speaker_name else "null"
+            speaker = speaker.replace("\r\n", "").replace("\t", "").replace("\n", "")
+
             src_text = trans.post_jp
-            src_text = src_text.replace("\r\n", "\\n").replace("\t", "\\t")
-            tmp_obj = f"{trans.index}\t{speaker}\t{src_text}"
+            src_text = src_text.replace("\t", "[t]")
+
+            tmp_obj = f"{speaker}\t{src_text}\t{trans.index}"
             input_list.append(tmp_obj)
 
         input_src = "\n".join(input_list)
 
-        prompt_req = (
-            self.chatbot.trans_prompt
-            if not proofread
-            else self.chatbot.proofread_prompt
-        )
+        self.restore_context(trans_list, 8, filename)
+
+        prompt_req = self.trans_prompt
         prompt_req = prompt_req.replace("[Input]", input_src)
         prompt_req = prompt_req.replace("[Glossary]", gptdict)
         prompt_req = prompt_req.replace("[SourceLang]", self.source_lang)
         prompt_req = prompt_req.replace("[TargetLang]", self.target_lang)
 
-        if self.enhance_jailbreak:
-            assistant_prompt = "ID\tNAME\tDST"
-        else:
-            assistant_prompt = ""
-
+        retry_count = 0
         while True:  # 一直循环，直到得到数据
-            try:
-                self.token = self.tokenProvider.getToken()
-                self.chatbot.set_api_key(self.token.token)
-                base_path = "/v1" if not re.search(r"/v\d+$", self.token.domain) else ""
-                self.chatbot.set_api_addr(
-                    f"{self.token.domain}{base_path}/chat/completions"
+            if self.enhance_jailbreak or tmp_enhance_jailbreak:
+                assistant_prompt = "```NAME\tDST\tID\n"
+            else:
+                assistant_prompt = ""
+
+            messages = []
+            messages.append({"role": "system", "content": self.system_prompt})
+            if (
+                filename in self.last_translations
+                and self.last_translations[filename] != ""
+            ):
+                self.last_translations[filename] = self.last_translations[
+                    filename
+                ].replace("<br>", "")
+                messages.append(
+                    {"role": "user", "content": "<input>\n(...truncated history source texts...)\n</input>\n<output>\n"}
                 )
-                # LOGGER.info("->输入：\n" + prompt_req + "\n")
-                with logging_redirect_tqdm(loggers=[LOGGER]):
-                    LOGGER.info(
-                        f"->{'翻译输入' if not proofread else '校对输入'}：{gptdict}\n{input_src}\n"
-                    )
-                if self.streamOutputMode:
-                    LOGGER.info("->输出：")
-                resp, data = "", ""
+                messages.append(
+                    {"role": "assistant", "content": self.last_translations[filename]}
+                )
+            messages.append({"role": "user", "content": prompt_req})
+            if assistant_prompt:
+                messages.append({"role": "assistant", "content": assistant_prompt})
 
-                self._del_previous_message()
-                async for data in self.chatbot.ask_stream_async(
-                    prompt_req, assistant_prompt=assistant_prompt
-                ):
-                    if self.streamOutputMode:
-                        print(data, end="", flush=True)
-                    resp += data
+            if self.pj_config.active_workers == 1:
+                LOGGER.info(
+                    f"->{'翻译输入' if not proofread else '校对输入'}：\n{gptdict}\n{input_src}\n"
+                )
+                LOGGER.info("->输出：")
+            resp = None
+            resp, token = await self.ask_chatbot(
+                messages=messages,
+                temperature=self.temperature,
+                file_name=f"{filename}:{idx_tip}",
+                base_try_count=retry_count
+            )
 
-                if not self.streamOutputMode:
-                    LOGGER.info(f"->输出：\n{resp}")
-                else:
-                    print("")
-            except asyncio.CancelledError:
-                raise
-            except RuntimeError:
-                raise
-            except Exception as ex:
-                str_ex = str(ex).lower()
-                LOGGER.error(f"-> {str_ex}")
-                if "quota" in str_ex:
-                    self.tokenProvider.reportTokenProblem(self.token)
-                    LOGGER.error(f"-> [请求错误]余额不足： {self.token.maskToken()}")
-                    self.token = self.tokenProvider.getToken()
-                    self.chatbot.set_api_key(self.token.token)
-                    self._del_last_answer()
-                    LOGGER.warning(f"-> [请求错误]切换到token {self.token.maskToken()}")
-                    continue
-                elif "try again later" in str_ex or "too many requests" in str_ex:
-                    LOGGER.warning(
-                        f"-> [请求错误]请求受限，{self.wait_time}秒后继续尝试"
-                    )
-                    await asyncio.sleep(self.wait_time)
-                    continue
-                elif "try reload" in str_ex:
-                    self.reset_conversation()
-                    LOGGER.error("-> [请求错误]报错重置会话")
-                    continue
-                else:
-                    self._del_last_answer()
-                    LOGGER.info("-> [请求错误]报错:%s, 2秒后重试" % ex)
-                    await asyncio.sleep(2)
-                    continue
-
-            result_text = resp
+            result_text = resp or ""
+            result_text = result_text.split("NAME\tDST\tID")[-1].strip()
 
             i = -1
+            success_count = 0
             result_trans_list = []
             result_lines = result_text.splitlines()
             error_flag = False
             error_message = ""
-            for line_index, line in enumerate(result_lines):
+
+            if result_text == "":
+                error_message = "输出为空/被拦截"
+                error_flag = True
+
+            for line in result_lines:
+                if "```" in line:
+                    continue
+                if line.strip() == "":
+                    continue
+                if line.startswith("NAME"):
+                    continue
+
                 line_sp = line.split("\t")
                 if len(line_sp) != 3:
-                    error_message = f"第{line_index}句无法解析： {line}"
+                    error_message = f"无法解析行：{line}"
                     error_flag = True
                     break
-                if line_sp[0] == "ID":
-                    continue
 
                 i += 1
                 # 本行输出不正常
-                line_id = int(line_sp[0])
-                if line_id != trans_list[i].index:
-                    error_message = f"输出{line_id}句id未对应"
+                try:
+                    line_id = line_sp[2]
+                except:
+                    error_message = f"第{line}句id无法解析"
+                    error_flag = True
+                    break
+                if str(trans_list[i].index) not in line_id:
+                    error_message = f"{line_id}句id未对应{trans_list[i].index}"
                     error_flag = True
                     break
 
-                line_dst = line_sp[2]
+                line_dst = line_sp[1]
                 # 本行输出不应为空
                 if trans_list[i].post_jp != "" and line_dst == "":
                     error_message = f"第{line_id}句空白"
+                    error_flag = True
+                    break
+                if "�" in line_dst:
+                    error_message = f"第{line_id}句包含乱码：" + line_dst
                     error_flag = True
                     break
 
@@ -285,74 +181,93 @@ class ForGalTranslate(BaseTranslate):
                     and '"' not in trans_list[i].post_jp
                 ):
                     line_dst = line_dst.replace('"', "")
-                else:
+                elif '"' not in trans_list[i].post_jp and '"' in line_dst:
                     line_dst = fix_quotes2(line_dst)
-                if not line_dst.startswith("「") and trans_list[i].post_jp.startswith(
-                    "「"
-                ):
+                elif '"' in trans_list[i].post_jp and "”" in line_dst:
+                    line_dst = line_dst.replace("“", '"')
+                    line_dst = line_dst.replace("”", '"')
+
+                if "「" not in line_dst and trans_list[i].post_jp.startswith("「"):
                     line_dst = "「" + line_dst
-                if not line_dst.endswith("」") and trans_list[i].post_jp.endswith("」"):
+                if "」" not in line_dst and trans_list[i].post_jp.endswith("」"):
                     line_dst = line_dst + "」"
 
-                if "\r\n" in trans_list[i].post_jp:
-                    line_dst = line_dst.replace("\\n", "\r\n")
-                if "\t" in trans_list[i].post_jp:
-                    line_dst = line_dst.replace("\\t", "\t")
+                line_dst = line_dst.replace("[t]", "\t")
+                if n_symbol:
+                    line_dst = line_dst.replace("<br>", n_symbol)
+                    line_dst = line_dst.replace("<BR>", n_symbol)
+
                 if "……" in trans_list[i].post_jp and "..." in line_dst:
                     line_dst = line_dst.replace("......", "……")
                     line_dst = line_dst.replace("...", "……")
 
                 trans_list[i].pre_zh = line_dst
                 trans_list[i].post_zh = line_dst
-                trans_list[i].trans_by = self.chatbot.engine
+                trans_list[i].trans_by = token.model_name
                 result_trans_list.append(trans_list[i])
+                success_count += 1
+
+                if i >= len(trans_list) - 1:
+                    break
+
+            if success_count > 0:
+                error_flag = False  # 部分解析
 
             if error_flag:
-                LOGGER.error(f"-> [解析错误]解析结果出错：{error_message}")
-                if self.skipRetry:
-                    self.reset_conversation()
-                    LOGGER.warning("-> [解析错误]解析出错但跳过本轮翻译")
+                LOGGER.error(
+                    f"[解析错误][{filename}:{idx_tip}]解析结果出错：{error_message}"
+                )
+                retry_count += 1
+                await asyncio.sleep(1)
+
+                tmp_enhance_jailbreak = not tmp_enhance_jailbreak
+
+                # 2次重试则对半拆
+                if retry_count == 2 and len(trans_list) > 1:
+                    retry_count -= 1
+                    LOGGER.warning(
+                        f"[解析错误][{filename}:{idx_tip}]仍然出错，拆分重试"
+                    )
+                    return await self.translate(
+                        trans_list[: max(len(trans_list) // 3,1)],
+                        gptdict,
+                        proofread=proofread,
+                        filename=filename,
+                    )
+                # 单句重试仍错则重置会话
+                if retry_count == 3:
+                    self.last_translations[filename] = ""
+                    LOGGER.warning(
+                        f"[解析错误][{filename}:{idx_tip}]单句仍错，重置会话"
+                    )
+                # 重试中止
+                if retry_count >= 4:
+                    self.last_translations[filename] = ""
+                    LOGGER.error(
+                        f"[解析错误][{filename}:{idx_tip}]解析反复出错，跳过本轮翻译"
+                    )
                     i = 0 if i < 0 else i
                     while i < len(trans_list):
                         if not proofread:
-                            trans_list[i].pre_zh = "Failed translation"
-                            trans_list[i].post_zh = "Failed translation"
-                            trans_list[i].trans_by = f"{self.chatbot.engine}(Failed)"
+                            trans_list[i].pre_zh = "(Failed)"+trans_list[i].post_jp
+                            trans_list[i].post_zh = "(Failed)"+trans_list[i].post_jp
+                            trans_list[i].problem += "翻译失败"
+                            trans_list[i].trans_by = f"{token.model_name}(Failed)"
                         else:
                             trans_list[i].proofread_zh = trans_list[i].pre_zh
                             trans_list[i].post_zh = trans_list[i].pre_zh
-                            trans_list[i].proofread_by = (
-                                f"{self.chatbot.engine}(Failed)"
-                            )
+                            trans_list[i].problem += "翻译失败"
+                            trans_list[i].proofread_by = f"{token.model_name}(Failed)"
                         result_trans_list.append(trans_list[i])
                         i = i + 1
                     return i, result_trans_list
-
-                await asyncio.sleep(1)
-                self._del_last_answer()
-                self.retry_count += 1
-                # 切换模式
-                self._set_temp_type("normal")
-                # 2次重试则对半拆
-                if self.retry_count == 2 and len(trans_list) > 1:
-                    self.retry_count -= 1
-                    LOGGER.warning("-> 仍然出错，拆分重试")
-                    return await self.translate(
-                        trans_list[: len(trans_list) // 2], gptdict
-                    )
-                # 单句重试仍错则重置会话
-                if self.retry_count == 3:
-                    self.reset_conversation()
-                    LOGGER.warning("-> 单句仍错，重置会话")
-                # 单句5次重试则中止
-                if self.retry_count == 5:
-                    LOGGER.error(f"-> 单句反复出错，已中止。错误为：{error_message}")
-                    raise RuntimeError(f"-> 单句反复出错，最后错误为：{error_message}")
                 continue
+            elif error_flag == False and error_message:
+                LOGGER.warning(
+                    f"[{filename}:{idx_tip}]解析了{len(trans_list)}句中的{success_count}句，存在问题：{error_message}"
+                )
 
             # 翻译完成，收尾
-            self._set_temp_type("precise")
-            self.retry_count = 0
             break
         return i + 1, result_trans_list
 
@@ -366,80 +281,44 @@ class ForGalTranslate(BaseTranslate):
         gpt_dic: CGptDict = None,
         proofread: bool = False,
         retran_key: str = "",
+        translist_hit: CTransList = [],
+        translist_unhit: CTransList = [],
     ) -> CTransList:
-        _, trans_list_unhit = get_transCache_from_json_new(
-            trans_list,
-            cache_file_path,
-            retry_failed=retry_failed,
-            proofread=proofread,
-            retran_key=retran_key,
-        )
-
+        if len(translist_unhit) == 0:
+            return []
         if self.skipH:
-            LOGGER.warning("skipH: 将跳过含有敏感词的句子")
-            trans_list_unhit = [
+            translist_unhit = [
                 tran
-                for tran in trans_list_unhit
+                for tran in translist_unhit
                 if not any(word in tran.post_jp for word in H_WORDS_LIST)
             ]
 
-        if len(trans_list_unhit) == 0:
-            return []
-        # 新文件重置chatbot
-        if self.last_file_name != filename:
-            self.reset_conversation()
-            self.last_file_name = filename
-            LOGGER.info(f"-> 开始翻译文件：{filename}")
+        if filename not in self.last_translations:
+            self.last_translations[filename] = ""
+
         i = 0
 
-        if (
-            self.eng_type != "unoffapi"
-            and self.restore_context_mode
-            and len(self.chatbot.conversation["default"]) == 1
-        ):
-            if not proofread:
-                self.restore_context(trans_list_unhit, num_pre_request)
-
         trans_result_list = []
-        len_trans_list = len(trans_list_unhit)
+        len_trans_list = len(translist_unhit)
         transl_step_count = 0
-        progress_bar = atqdm(
-            total=len_trans_list,
-            desc=f"Translating {filename}",
-            unit="line",
-            dynamic_ncols=True,
-            leave=False,
-            file=stdout,
-        )
+
         while i < len_trans_list:
-            await asyncio.sleep(1)
-            # trans_list_split = (
-            #     trans_list_unhit[i : i + num_pre_request]
-            #     if (i + num_pre_request < len_trans_list)
-            #     else trans_list_unhit[i:]
-            # )
-            trans_list_split = []
-            current_length = 0
-            # 原逻辑的切片范围：取 i 到 i + num_pre_request，或到末尾
-            slice_end = i + num_pre_request if (i + num_pre_request < len_trans_list) else len_trans_list
-            for tran in trans_list_unhit[i:slice_end]:
-                if current_length + len(tran.post_jp) > 1000:
-                    break
-                trans_list_split.append(tran)
-                current_length += len(tran.post_jp)
+            # await asyncio.sleep(1)
+            trans_list_split = (
+                translist_unhit[i : i + num_pre_request]
+                if (i + num_pre_request < len_trans_list)
+                else translist_unhit[i:]
+            )
 
-            # 如果没有找到任何符合条件的元素，则强制取第一个
-            if not trans_list_split and i < len_trans_list:
-                trans_list_split = [trans_list_unhit[i]]
-
-            dic_prompt = gpt_dic.gen_prompt(trans_list_split) if gpt_dic else ""
+            dic_prompt = gpt_dic.gen_prompt(trans_list_split, "tsv") if gpt_dic else ""
 
             num, trans_result = await self.translate(
-                trans_list_split, dic_prompt, proofread=proofread
+                trans_list_split, dic_prompt, proofread=proofread, filename=filename
             )
 
             if num > 0:
                 i += num
+            self.pj_config.bar(num)
             result_output = ""
             for trans in trans_result:
                 result_output = result_output + repr(trans)
@@ -447,108 +326,44 @@ class ForGalTranslate(BaseTranslate):
             trans_result_list += trans_result
             transl_step_count += 1
             if transl_step_count >= self.save_steps:
-                save_transCache_to_json(trans_list, cache_file_path)
+                await save_transCache_to_json(trans_list, cache_file_path)
                 transl_step_count = 0
-            progress_bar.update(num)
-            print("\n", flush=True)
+
+            trans_by = trans_result[0].trans_by
             LOGGER.info(
-                f"{filename}: {str(len(trans_result_list))}/{str(len_trans_list)}"
+                f"{filename}: {str(len(trans_result_list))}/{str(len_trans_list)} with {trans_by}"
             )
 
-        progress_bar.close()
         return trans_result_list
 
-    def reset_conversation(self):
-        if self.eng_type != "unoffapi":
-            self.chatbot.reset()
-        elif self.eng_type == "unoffapi":
-            self.chatbot.reset_chat()
+    def reset_conversation(self, filename=""):
+        self.last_translations[filename] = ""
 
-    def _del_previous_message(self) -> None:
-        """删除历史消息，只保留最后一次的翻译结果，节约tokens"""
-        last_assistant_message = None
-        last_user_message = None
-        for message in self.chatbot.conversation["default"]:
-            if message["role"] == "assistant":
-                last_assistant_message = message
-        for message in self.chatbot.conversation["default"]:
-            if message["role"] == "user":
-                last_user_message = message
-                last_user_message["content"] = "(History Translation Request)"
-        system_message = self.chatbot.conversation["default"][0]
-        self.chatbot.conversation["default"] = [system_message]
-        if last_user_message:
-            self.chatbot.conversation["default"].append(last_user_message)
-        if last_assistant_message:
-            self.chatbot.conversation["default"].append(last_assistant_message)
-
-    def _del_last_answer(self):
-        if self.eng_type != "unoffapi":
-            # 删除上次输出
-            if self.chatbot.conversation["default"][-1]["role"] == "assistant":
-                self.chatbot.conversation["default"].pop()
-            elif self.chatbot.conversation["default"][-1]["role"] is None:
-                self.chatbot.conversation["default"].pop()
-            # 删除上次输入
-            if self.chatbot.conversation["default"][-1]["role"] == "user":
-                self.chatbot.conversation["default"].pop()
-        elif self.eng_type == "unoffapi":
-            pass
-
-    def _set_temp_type(self, style_name: str):
-        if self.eng_type == "unoffapi":
+    def restore_context(
+        self, translist_unhit: CTransList, num_pre_request: int, filename=""
+    ):
+        if translist_unhit[0].prev_tran == None:
             return
-        if self._current_temp_type == style_name:
-            return
-        self._current_temp_type = style_name
-        # normal default
-        temperature, top_p = 1.0, 1.0
-        frequency_penalty, presence_penalty = 0.3, 0.0
-        if style_name == "precise":
-            temperature, top_p = 0.3, 1.0
-            frequency_penalty, presence_penalty = 0.1, 0.0
-        elif style_name == "normal":
-            pass
-
-        self.chatbot.temperature = temperature
-        self.chatbot.top_p = top_p
-        self.chatbot.frequency_penalty = frequency_penalty
-        self.chatbot.presence_penalty = presence_penalty
-
-    def restore_context(self, trans_list_unhit: CTransList, num_pre_request: int):
-        if self.eng_type != "unoffapi":
-            if trans_list_unhit[0].prev_tran == None:
-                return
-            tmp_context = []
-            num_count = 0
-            current_tran = trans_list_unhit[0].prev_tran
-            while current_tran != None:
-                if current_tran.pre_zh == "":
-                    current_tran = current_tran.prev_tran
-                    continue
-                speaker = current_tran.speaker if current_tran.speaker else "null"
-                tmp_obj = f"{current_tran.index}\t{speaker}\t{current_tran.pre_zh}"
-                tmp_context.append(tmp_obj)
-                num_count += 1
-                if num_count >= num_pre_request:
-                    break
+        tmp_context = []
+        num_count = 0
+        current_tran = translist_unhit[0].prev_tran
+        while current_tran != None:
+            if current_tran.pre_zh == "":
                 current_tran = current_tran.prev_tran
+                continue
+            speaker_name = current_tran.get_speaker_name()
+            speaker = speaker_name if speaker_name else "null"
+            tmp_obj = f"{speaker}\t{current_tran.pre_zh}\t{current_tran.index}"
+            tmp_context.append(tmp_obj)
+            num_count += 1
+            if num_count >= num_pre_request:
+                break
+            current_tran = current_tran.prev_tran
 
-            tmp_context.reverse()
-            json_lines = "\n".join(tmp_obj)
-            self.chatbot.conversation["default"].append(
-                {"role": "user", "content": "(History Translation Request)"}
-            )
-            self.chatbot.conversation["default"].append(
-                {
-                    "role": "assistant",
-                    "content": f"ID\tNAME\tDST\n{json_lines}",
-                },
-            )
-            LOGGER.info("-> 恢复了上下文")
-
-        elif self.eng_type == "unoffapi":
-            pass
+        tmp_context.reverse()
+        json_lines = "\n".join(tmp_context)
+        self.last_translations[filename] = "NAME\tDST\tID\n" + json_lines
+        # LOGGER.info("-> 恢复了上下文")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from GalTransl.COpenAI import COpenAITokenPool, init_sakura_endpoint_queue
 from GalTransl.yapsy.PluginManager import PluginManager
 from GalTransl.ConfigHelper import CProjectConfig, CProxyPool
 from GalTransl.Frontend.LLMTranslate import doLLMTranslate
+from GalTransl.i18n import get_text,GT_LANG
 from GalTransl.CSplitter import (
     DictionaryCountSplitter,
     EqualPartsSplitter,
@@ -77,8 +78,7 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
         raise Exception(f"不支持的翻译器: {translator}")
 
     # 日志初始化
-    for handler in LOGGER.handlers:
-        LOGGER.removeHandler(handler)
+    LOGGER.handlers.clear()
     handler = logging.StreamHandler(stream=sys.stdout)
     handler.setFormatter(CONSOLE_FORMAT)
     LOGGER.addHandler(handler)
@@ -149,10 +149,10 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
             plugin_conf["Settings"].update(project_plugin_conf[plugin_module])
         project_conf["project_dir"] = cfg.getProjectDir()
         try:
-            LOGGER.info(f'加载插件"{plugin.name}"...')
+            LOGGER.info(get_text("loading_plugin", GT_LANG, plugin.name))
             plugin.plugin_object.gtp_init(plugin_conf, project_conf)
         except Exception as e:
-            LOGGER.exception(f'插件"{plugin.name}"加载失败: {e}')
+            LOGGER.error(get_text("plugin_load_failed", GT_LANG, plugin.name, e))
             if plugin in text_plugins:
                 text_plugins.remove(plugin)
             elif plugin in file_plugins:
@@ -175,10 +175,12 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
     # OpenAITokenPool初始化
     if any(x in translator for x in NEED_OpenAITokenPool):
         OpenAITokenPool = COpenAITokenPool(cfg, translator)
-        await OpenAITokenPool.checkTokenAvailablity(
-            proxyPool.getProxy() if proxyPool else None, translator
-        )
-        OpenAITokenPool.getToken()
+        checkAvailable=cfg.getBackendConfigSection("OpenAI-Compatible").get("checkAvailable",True)
+        if checkAvailable:
+            await OpenAITokenPool.checkTokenAvailablity(
+                proxyPool.getProxy() if proxyPool else None, translator
+            )
+            OpenAITokenPool.getToken()
     else:
         OpenAITokenPool = None
 
@@ -196,22 +198,22 @@ async def run_galtransl(cfg: CProjectConfig, translator: str):
             f"\033[32m更新地址：https://github.com/xd2333/GalTransl/releases\033[0m"
         )
 
-    if project_conf.get("splitFile", False):
+    if project_conf.get("splitFile", "no") in ["Num","Equal"]:
+        val = project_conf.get("splitFile", "no")
         splitFileNum = int(project_conf.get("splitFileNum", -1))
         cross_num = int(project_conf.get("splitFileCrossNum", 0))
         if "dump-name" in translator:  # 提取人名表时不交叉
             cross_num = 0
         if splitFileNum == -1:
             splitFileNum = int(project_conf.get("workersPerProject", -1))
-        splitFileMethod = project_conf.get("splitFileMethod", "EqualPartsSplitter")
-        if splitFileMethod == "DictionaryCountSplitter":
+
+        if val == "Num":
             assert splitFileNum > 10, "DictionaryCountSplitter下分割数量必须大于10"
             input_splitter = DictionaryCountSplitter(splitFileNum, cross_num)
-        elif splitFileMethod == "EqualPartsSplitter":
+        elif val == "Equal":
             input_splitter = EqualPartsSplitter(splitFileNum, cross_num)
         else:
-            raise Exception(f"不支持的分割方法: {splitFileMethod}")
-
+            raise Exception(f"不支持的分割方法: {val}")
         # 默认的输出合并器
         output_combiner = DictionaryCombiner()
     else:

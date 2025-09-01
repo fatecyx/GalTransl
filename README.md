@@ -19,11 +19,13 @@
   4. 实时保存缓存、自动断点续翻   
   5. 结合其他项目支持多引擎脚本一键解包与注入，提供完整教程降低上手难度
   6. （新）现在也支持直接翻译srt、lrc、vtt字幕文件，mtool json文件，t++ excel文件，epub文件
-  7. （新）🤗 [Galtransl-7B-v2](https://huggingface.co/SakuraLLM/GalTransl-7B-v2)是为视觉小说翻译任务专项优化的本地模型，可在6G VRAM以上显卡部署，由sakuraumi和xd2333共同构建。
+  7. （2025.5新）🤗 [Galtransl-7B-v3.5](https://huggingface.co/SakuraLLM/GalTransl-7B-v2)是为视觉小说翻译任务专项优化的本地模型，可在6G VRAM以上显卡部署，由sakuraumi和xd2333共同构建。
+  8. （2025.4新）🤗[GalTransl-14B-v3](https://huggingface.co/SakuraLLM/Sakura-GalTransl-14B-v3)是GalTransl-v3模型的14b版本，得益于更大的底模及改进的对齐训练，GalTransl-14B-v3整体质量好于GalTransl-7B-v3   
 
 <b>❗❗使用本工具翻译并在未做全文校对/润色的前提下发布时，请在最显眼的位置标注"GPT翻译/AI翻译补丁"，而不是"个人汉化"或"AI汉化"补丁。</b>
 
 ## 近期更新
+* 2025.5: 更新v6，新增翻译模板ForGal、新增GalTransl-14B-v3模型
 * 2024.5：更新v5，新增GalTransl-7B模型，新增多种文件类型支持   
 * 2024.2：更新v4版，主要支持了插件系统  
 * 2023.12：更新v3版，支持基于文件的多线程 by @ryank231231
@@ -45,25 +47,13 @@
   解压到任意位置，例如 `D:\GalTransl`
 
   * Python   
-  安装 Python 3.11/3.12。 [下载](https://www.python.org/downloads/release/python-3117/)   
+  安装 Python 3.11.9。 [下载](https://www.python.org/downloads/release/python-3119/)   
   **安装时勾选下方 add Python to path**   
 
   * 安装Python依赖   
   安装 Python 后
   
-  如果你是**初学者**，可以直接双击`安装、更新依赖.bat`来安装本项目需要的依赖。
-
-  如果你**熟悉python**，本项目提供Poetry进行依赖管理，可以通过以下命令安装并运行程序：
-
-  ```
-  cmd
-  pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
-  pip install poetry
-  poetry install
-  cd 到本仓库目录
-  poetry shell
-  python -m GalTransl -p 你的项目路径 -t 翻译后端
-  ```
+可以直接双击`安装、更新依赖.bat`来安装本项目需要的依赖。
 
 ## 实用工具
 | 名称 | 说明 |

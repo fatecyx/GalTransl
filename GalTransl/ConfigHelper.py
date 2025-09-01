@@ -51,6 +51,7 @@ class CProblemType(Enum):
     字典使用 = 7
     引入英文 = 8
     比日文长严格 = 9
+    语言不通 = 10
 
 
 class CProjectConfig:
@@ -134,7 +135,7 @@ class CProjectConfig:
         return self.projectConfig["plugin"]
 
     def getlbSymbol(self) -> str:
-        lbSymbol = self.projectConfig["common"].get("linebreakSymbol", "\r\n")
+        lbSymbol = self.projectConfig["common"].get("linebreakSymbol", "auto")
         return lbSymbol
 
     def getProxyConfigSection(self) -> dict:
@@ -144,6 +145,12 @@ class CProjectConfig:
         """
         backendName: GPT35 / GPT4 / ChatGPT / bingGPT4
         """
+        if backendName=="OpenAI-Compatible":
+            if "OpenAI-Compatible" not in self.projectConfig["backendSpecific"]:
+                backendName="GPT4"
+        elif backendName=="SakuraLLM":
+            if "SakuraLLM" not in self.projectConfig["backendSpecific"]:
+                backendName="Sakura"
         return self.projectConfig["backendSpecific"][backendName]
 
     def getDictCfgSection(self, key: str = "") -> dict:
@@ -189,33 +196,15 @@ class CProxyPool:
         try:
             st = time()
             LOGGER.debug("start testing proxy %s", proxy.addr)
-            # 检查httpx版本
-            try:
-                httpx_version = version("httpx")
-                is_new_version = tuple(map(int, httpx_version.split("."))) >= (0, 28, 0)
-            except:
-                is_new_version = False
-
-            if is_new_version:
-                async with AsyncClient(proxy={"http://": proxy.addr}) as client:
-                    response = await client.get(test_address)
-                    if response.status_code != 204:
-                        LOGGER.debug(
-                            "tested proxy %s failed (%s)", proxy.addr, response
-                        )
-                        return False, proxy
-                    else:
-                        return True, proxy
-            else:
-                async with AsyncClient(proxies={"http://": proxy.addr}) as client:
-                    response = await client.get(test_address)
-                    if response.status_code != 204:
-                        LOGGER.debug(
-                            "tested proxy %s failed (%s)", proxy.addr, response
-                        )
-                        return False, proxy
-                    else:
-                        return True, proxy
+            async with AsyncClient(proxy=proxy.addr) as client:
+                response = await client.get(test_address)
+                if response.status_code != 204:
+                    LOGGER.debug(
+                        "tested proxy %s failed (%s)", proxy.addr, response
+                    )
+                    return False, proxy
+                else:
+                    return True, proxy
         except TimeoutException:
             LOGGER.debug("we got exception in testing proxy %s", proxy.addr)
             return False, proxy

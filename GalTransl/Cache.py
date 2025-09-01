@@ -6,9 +6,11 @@ from GalTransl.CSentense import CTransList
 from GalTransl import LOGGER
 import orjson
 import os
+from GalTransl.i18n import get_text,GT_LANG
+import aiofiles
 
 
-def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_save=False):
+async def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_save=False):
     """
     此函数将翻译缓存保存到 JSON 文件中。
 
@@ -52,11 +54,11 @@ def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_save=F
             cache_obj["post_zh_preview"] = tran.post_zh
         cache_json.append(cache_obj)
 
-    with open(cache_file_path, mode="wb") as f:
-        f.write(orjson.dumps(cache_json, option=orjson.OPT_INDENT_2))
+    async with aiofiles.open(cache_file_path, mode="wb") as f:
+        await f.write(orjson.dumps(cache_json, option=orjson.OPT_INDENT_2))
 
 
-def get_transCache_from_json_new(
+async def get_transCache_from_json(
     trans_list: CTransList,
     cache_file_path,
     retry_failed=False,
@@ -64,6 +66,7 @@ def get_transCache_from_json_new(
     retran_key="",
     load_post_jp=False,
     ignr_post_jp=False,
+    eng_type="",
 ):
     """
     此函数从 JSON 文件中检索翻译缓存，并相应地更新翻译列表。
@@ -84,13 +87,13 @@ def get_transCache_from_json_new(
         if not os.path.exists(cache_file_path):
             cache_file_path += ".json"
 
-    trans_list_hit = []
-    trans_list_unhit = []
+    translist_hit = []
+    translist_unhit = []
     cache_dict = {}
     if os.path.exists(cache_file_path):
-        with open(cache_file_path, encoding="utf8") as f:
+        async with aiofiles.open(cache_file_path, encoding="utf8") as f:
             try:
-                cache_dictList = orjson.loads(f.read())
+                cache_dictList = orjson.loads(await f.read())
                 for i, cache in enumerate(cache_dictList):
                     line_now, line_priv, line_next = "", "None", "None"
                     line_now = f'{cache["name"]}{cache["pre_jp"]}'
@@ -102,20 +105,20 @@ def get_transCache_from_json_new(
                     line_next = "None" if line_next == "" else line_next
                     cache_dict[line_priv + line_now + line_next] = cache
             except Exception as e:
-                f.close()
-                LOGGER.error(f"读取缓存{cache_file_path}时出现错误，请检查错误信息")
-                raise e
+                LOGGER.error(str(e))
+                LOGGER.error(get_text("cache_read_error", GT_LANG, cache_file_path))
+                return [],trans_list
 
     for tran in trans_list:
         # 忽略jp为空的句子
         if tran.pre_jp == "" or tran.post_jp == "":
             tran.pre_zh, tran.post_zh = "", ""
-            trans_list_hit.append(tran)
+            translist_hit.append(tran)
             continue
         # 忽略在读取缓存前pre_zh就有值的句子
         if tran.pre_zh != "":
             tran.post_zh = tran.pre_zh
-            trans_list_hit.append(tran)
+            translist_hit.append(tran)
             continue
 
         line_now, line_priv, line_next = "", "None", "None"
@@ -139,8 +142,10 @@ def get_transCache_from_json_new(
 
         # cache_key不在缓存
         if cache_key not in cache_dict:
-            trans_list_unhit.append(tran)
-            LOGGER.debug(f"未命中缓存: {line_now}")
+            translist_unhit.append(tran)
+            LOGGER.debug(f"[cache]message未命中缓存: {line_now}")
+            if "rebuild" in eng_type:
+                LOGGER.error(f"[cache]message未命中缓存: {line_now}")
             continue
 
         no_proofread = cache_dict[cache_key]["proofread_zh"] == ""
@@ -149,8 +154,10 @@ def get_transCache_from_json_new(
             # post_jp被改变
             if load_post_jp == ignr_post_jp == False:
                 if tran.post_jp != cache_dict[cache_key]["post_jp"]:
-                    trans_list_unhit.append(tran)
-                    LOGGER.debug(f"post_jp被改变: {line_now}")
+                    translist_unhit.append(tran)
+                    LOGGER.debug(f"[cache]post_jp被改变: \npost_jp_before{cache_dict[cache_key]['post_jp']}\npost_jp_now{tran.post_jp}")
+                    if "rebuild" in eng_type:
+                        LOGGER.error(f"[cache]post_jp被改变: \npost_jp_before: {cache_dict[cache_key]['post_jp']}\npost_jp_now: {tran.post_jp}")
                     continue
             # pre_zh为空
             if tran.post_jp != "":
@@ -158,31 +165,37 @@ def get_transCache_from_json_new(
                     "pre_zh" not in cache_dict[cache_key]
                     or cache_dict[cache_key]["pre_zh"] == ""
                 ):
-                    trans_list_unhit.append(tran)
-                    LOGGER.debug(f"pre_zh为空: {line_now}")
+                    translist_unhit.append(tran)
+                    LOGGER.debug(f"[cache]pre_zh为空: {line_now}")
+                    if "rebuild" in eng_type:
+                        LOGGER.error(f"[cache]pre_zh为空: {line_now}")
                     continue
             # 重试失败的
-            if retry_failed and "Failed translation" in cache_dict[cache_key]["pre_zh"]:
+            if retry_failed and "(Failed)" in cache_dict[cache_key]["pre_zh"]:
                 if (
                     no_proofread or "Fail" in cache_dict[cache_key]["proofread_by"]
                 ):  # 且未校对
-                    trans_list_unhit.append(tran)
-                    LOGGER.debug(f"重试失败的: {line_now}")
+                    translist_unhit.append(tran)
+                    LOGGER.debug(f"[cache]Failed translation: {line_now}")
+                    if "rebuild" in eng_type:
+                        LOGGER.error(f"[cache]Failed translation: {line_now}")
                     continue
 
             # retran_key在pre_jp中
             if retran_key and check_retran_key(
                 retran_key, cache_dict[cache_key]["pre_jp"]
             ):
-                trans_list_unhit.append(tran)
-                LOGGER.debug(f"retran_key在pre_jp中: {line_now}")
-                continue
+                if "rebuild" not in eng_type:
+                    translist_unhit.append(tran)
+                    LOGGER.info(f"[cache]retran_key in 'pre_jp' message: {line_now}")
+                    continue
             # retran_key在problem中
             if retran_key and "problem" in cache_dict[cache_key]:
                 if check_retran_key(retran_key, cache_dict[cache_key]["problem"]):
-                    trans_list_unhit.append(tran)
-                    LOGGER.debug(f"retran_key在problem中: {line_now}")
-                    continue
+                    if "rebuild" not in eng_type:
+                        translist_unhit.append(tran)
+                        LOGGER.info(f"[cache]retran_key in 'problem' message: {line_now}")
+                        continue
 
         # 击中缓存的,post_zh初始值赋pre_zh
         tran.pre_zh = cache_dict[cache_key]["pre_zh"]
@@ -206,16 +219,16 @@ def get_transCache_from_json_new(
 
         # 校对模式下，未校对的
         if proofread and tran.proofread_zh == "":
-            trans_list_unhit.append(tran)
+            translist_unhit.append(tran)
             continue
 
         # 不检查post_jp是否被改变, 且直接使用cache的post_jp
         if load_post_jp:
             tran.post_jp = cache_dict[cache_key]["post_jp"]
 
-        trans_list_hit.append(tran)
+        translist_hit.append(tran)
 
-    return trans_list_hit, trans_list_unhit
+    return translist_hit, translist_unhit
 
 
 def check_retran_key(retran_key, target):
