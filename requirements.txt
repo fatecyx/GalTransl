@@ -17,6 +17,7 @@ alive-progress
 vaporetto
 langid
 aiofiles
+httpx-aiohttp
 
 # Tokenizer
 budoux

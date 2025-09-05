@@ -13,6 +13,7 @@ from GalTransl.CSentense import CSentense, CTransList
 from GalTransl.Cache import save_transCache_to_json
 from GalTransl.Dictionary import CGptDict
 from openai import RateLimitError, AsyncOpenAI
+from openai import DefaultAioHttpClient
 from openai._types import NOT_GIVEN
 import random
 import time
@@ -139,11 +140,17 @@ class BaseTranslate:
         trust_env = False  # 不使用系统代理
         self.client_list = []
         for token in self.tokenProvider.get_available_token():
+            # client = AsyncOpenAI(
+            #     api_key=token.token,
+            #     base_url=token.domain,
+            #     max_retries=0,
+            #     http_client=httpx.AsyncClient(proxy=proxy_addr, trust_env=trust_env),
+            # )
             client = AsyncOpenAI(
                 api_key=token.token,
                 base_url=token.domain,
                 max_retries=0,
-                http_client=httpx.AsyncClient(proxy=proxy_addr, trust_env=trust_env),
+                http_client=DefaultAioHttpClient(proxy=proxy_addr, trust_env=trust_env,limits=httpx.Limits(max_keepalive_connections=None, max_connections=None)),
             )
             self.client_list.append((client, token))
 
