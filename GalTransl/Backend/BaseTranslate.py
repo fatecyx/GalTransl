@@ -150,7 +150,13 @@ class BaseTranslate:
                 api_key=token.token,
                 base_url=token.domain,
                 max_retries=0,
-                http_client=DefaultAioHttpClient(proxy=proxy_addr, trust_env=trust_env,limits=httpx.Limits(max_keepalive_connections=None, max_connections=None)),
+                http_client=DefaultAioHttpClient(
+                    proxy=proxy_addr,
+                    trust_env=trust_env,
+                    limits=httpx.Limits(
+                        max_keepalive_connections=None, max_connections=None
+                    ),
+                ),
             )
             self.client_list.append((client, token))
 
@@ -215,14 +221,16 @@ class BaseTranslate:
                     async for chunk in response:
                         if not chunk.choices:
                             continue
-                        if hasattr(chunk.choices[0].delta,"reasoning_content"):
-                            lastline = lastline + (chunk.choices[0].delta.reasoning_content or "")
-                        if hasattr(chunk.choices[0].delta,"content"):
-                            result = result+ (chunk.choices[0].delta.content or "")
+                        if hasattr(chunk.choices[0].delta, "reasoning_content"):
+                            lastline = lastline + (
+                                chunk.choices[0].delta.reasoning_content or ""
+                            )
+                        if hasattr(chunk.choices[0].delta, "content"):
+                            result = result + (chunk.choices[0].delta.content or "")
                             lastline = lastline + (chunk.choices[0].delta.content or "")
                         if "\n" in lastline:
                             if self.pj_config.active_workers == 1:
-                                lastline_sp=lastline.split("\n")
+                                lastline_sp = lastline.split("\n")
                                 print("\n".join(lastline_sp[:-1]))
                                 lastline = lastline_sp[-1]
                 else:
