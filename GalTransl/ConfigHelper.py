@@ -97,6 +97,7 @@ class CProjectConfig:
         self.proxyPool = None  # 代理池
         self.endpointQueue = None  # 端点队列
         self.input_splitter = None  # 输入分割器
+        self.active_workers: int=0
 
     def getProjectConfig(self) -> dict:
         """

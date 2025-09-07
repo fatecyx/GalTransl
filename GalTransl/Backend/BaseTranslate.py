@@ -78,12 +78,9 @@ class BaseTranslate:
         # 跳过h
         self.skipH = config.getKey("skipH", False)
 
-        # 流式输出模式（废弃）
-        self.streamOutputMode = config.getKey("gpt.streamOutputMode", False)
-        if config.getKey("workersPerProject") > 1:  # 多线程关闭流式输出
-            self.streamOutputMode = False
-
         self.tokenProvider = token_pool
+
+        self.contextNum:int = config.getKey("gpt.contextNum", 8)
 
         if config.getKey("internals.enableProxy") == True:
             self.proxyProvider = proxy_pool
@@ -309,14 +306,6 @@ class BaseTranslate:
             self.reset_conversation()
             self.last_file_name = filename
         i = 0
-
-        if (
-            self.eng_type != "unoffapi"
-            and self.restore_context_mode
-            and len(self.chatbot.conversation["default"]) == 1
-        ):
-            if not proofread:
-                self.restore_context(translist_unhit, num_pre_request)
 
         trans_result_list = []
         len_trans_list = len(translist_unhit)

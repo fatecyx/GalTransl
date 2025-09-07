@@ -79,7 +79,7 @@ class ForNovelTranslate(BaseTranslate):
             input_list.append(tmp_obj)
         input_src = "\n".join(input_list)
 
-        self.restore_context(trans_list, 8, filename)
+        self.restore_context(trans_list, self.contextNum, filename)
 
         prompt_req = self.trans_prompt
         prompt_req = prompt_req.replace("[Input]", input_src)
@@ -299,9 +299,6 @@ class ForNovelTranslate(BaseTranslate):
             ]
 
         i = 0
-
-        if self.restore_context_mode and not proofread:
-            self.restore_context(translist_unhit, num_pre_request, filename)
 
         trans_result_list = []
         len_trans_list = len(translist_unhit)

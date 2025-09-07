@@ -117,8 +117,8 @@ class CSakuraTranslate(BaseTranslate):
         max_repeat = 0
         retry_count = 0
         line_lens = []
-        start_idx=trans_list[0].index
-        end_idx=trans_list[-1].index
+        start_idx: int=trans_list[0].index
+        end_idx: int=trans_list[-1].index
         idx_tip=""
         if start_idx!=end_idx:
             idx_tip=f"{start_idx}~{end_idx}"
@@ -134,13 +134,15 @@ class CSakuraTranslate(BaseTranslate):
             line_lens.append(len(tmp_text))
         input_str = "\n".join(input_list).strip("\n")
 
-        prompt_req = self.trans_prompt
+        self.restore_context(trans_list, self.contextNum, filename)
+
+        prompt_req: str = self.trans_prompt
         prompt_req = prompt_req.replace("[Input]", input_str)
         prompt_req = prompt_req.replace("[Glossary]", gptdict)
 
         last_translation=""
         if filename in self.last_translations:
-            last_translation = self.last_translations[filename]
+            last_translation:str = self.last_translations[filename]
 
         if self.eng_type in ["galtransl-v3"]:  # v3不使用多轮对话做上下文
             history = ""
@@ -269,7 +271,6 @@ class CSakuraTranslate(BaseTranslate):
                 retry_count = 0
 
             self._set_temp_type("precise")
-            self.last_translations[filename]=resp
             return i + 1, result_trans_list
 
     async def batch_translate(
@@ -293,9 +294,6 @@ class CSakuraTranslate(BaseTranslate):
             self.last_translations[filename]=""
 
         i = 0
-
-        self.restore_context(translist_unhit, num_pre_request, filename)
-
         trans_result_list = []
         len_trans_list = len(translist_unhit)
         transl_step_count = 0
