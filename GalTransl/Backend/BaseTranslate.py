@@ -82,6 +82,8 @@ class BaseTranslate:
 
         self.contextNum:int = config.getKey("gpt.contextNum", 8)
 
+        self.smartRetry:bool=config.getKey("smartRetry", True)
+
         if config.getKey("internals.enableProxy") == True:
             self.proxyProvider = proxy_pool
         else:

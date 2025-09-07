@@ -237,13 +237,17 @@ class CSakuraTranslate(BaseTranslate):
                 else:
                     LOGGER.error(f"[{filename}:{idx_tip}]错误的输出：{error_message}")
 
-                    # 可拆分先对半拆
-                    if len(trans_list) > 1:
-                        LOGGER.warning(f"[{filename}:{idx_tip}]对半拆分重试")
-                        half_len = len(trans_list) // 3
-                        half_len = 1 if half_len < 1 else half_len
-                        return await self.translate(trans_list[:half_len], gptdict,filename)
-
+                    # 2次重试则对半拆
+                    if retry_count == 2 and len(trans_list) > 1 and self.smartRetry:
+                        retry_count -= 1
+                        LOGGER.warning(
+                            f"[解析错误][{filename}:{idx_tip}]连续2次出错，尝试拆分重试"
+                        )
+                        return await self.translate(
+                            trans_list[: max(len(trans_list) // 3,1)],
+                            gptdict,
+                            filename=filename,
+                        )
                     # 拆成单句后，才开始计算重试次数
                     retry_count += 1
                     # 5次重试则填充原文
@@ -253,8 +257,8 @@ class CSakuraTranslate(BaseTranslate):
                         )
                         i = 0 if i < 0 else i
                         while i < len(trans_list):
-                            trans_list[i].pre_zh = trans_list[i].post_jp
-                            trans_list[i].post_zh = trans_list[i].post_jp
+                            trans_list[i].pre_zh = "(Failed)"+trans_list[i].post_jp
+                            trans_list[i].post_zh = "(Failed)"+trans_list[i].post_jp
                             trans_list[i].trans_by = f"{self.eng_type}(Failed)"
                             result_trans_list.append(trans_list[i])
                             i = i + 1

@@ -223,10 +223,10 @@ class ForGalTranslate(BaseTranslate):
                 tmp_enhance_jailbreak = not tmp_enhance_jailbreak
 
                 # 2次重试则对半拆
-                if retry_count == 2 and len(trans_list) > 1:
+                if retry_count == 2 and len(trans_list) > 1 and self.smartRetry:
                     retry_count -= 1
                     LOGGER.warning(
-                        f"[解析错误][{filename}:{idx_tip}]仍然出错，拆分重试"
+                        f"[解析错误][{filename}:{idx_tip}]连续2次出错，尝试拆分重试"
                     )
                     return await self.translate(
                         trans_list[: max(len(trans_list) // 3,1)],
@@ -235,10 +235,10 @@ class ForGalTranslate(BaseTranslate):
                         filename=filename,
                     )
                 # 单句重试仍错则重置会话
-                if retry_count == 3:
+                if retry_count == 3 and self.smartRetry:
                     self.last_translations[filename] = ""
                     LOGGER.warning(
-                        f"[解析错误][{filename}:{idx_tip}]单句仍错，重置会话"
+                        f"[解析错误][{filename}:{idx_tip}]连续3次出错，尝试清空上文"
                     )
                 # 重试中止
                 if retry_count >= 4:

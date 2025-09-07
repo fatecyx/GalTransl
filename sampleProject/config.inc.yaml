@@ -47,7 +47,7 @@ common:
   start_time: "" # 定时启动，例如00:30，留空则立即启动。[00:00-23:59]
   linebreakSymbol: "auto" # 这个项目在json中使用的换行符，找问题和自动修复时用到，不影响翻译。
   skipH: false # 跳过可能触发敏感词检测的句子。[True/False]
-  splitRetry: True # 解析失败时折半重翻，避免死循环。[True/False]
+  smartRetry: True # 解析结果失败时尝试折半重翻与清空上下文，避免无效重试。[True/False]
   retranslFail: false # 重启时重翻所有"(Failed)"的句子。[True/False]
   retranslKey:
     - "重翻在缓存的problem或pre_jp中包含对应**关键字**的句子，去掉下面列表中的#号注释来使用，也可添加自定义的关键字。"
