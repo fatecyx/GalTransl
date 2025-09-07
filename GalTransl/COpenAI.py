@@ -120,7 +120,7 @@ class COpenAITokenPool:
                 timeout=self.timeout,
                 stream=token.stream,
             )
-            if self.stream == False:
+            if token.stream == False:
                 if len(response.choices) > 0:
                     return True, token
                 else:

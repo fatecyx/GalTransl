@@ -216,7 +216,7 @@ class BaseTranslate:
                 )
                 result = ""
                 lastline = ""
-                if stream:
+                if is_stream:
                     async for chunk in response:
                         if not chunk.choices:
                             continue
