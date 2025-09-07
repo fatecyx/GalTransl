@@ -176,7 +176,6 @@ class BaseTranslate:
         base_try_count=0,
     ):
         api_try_count = base_try_count
-        stream = stream if stream else self.stream
         client: AsyncOpenAI
         token: COpenAIToken
         client, token = random.choices(self.client_list, k=1)[0]
@@ -201,12 +200,13 @@ class BaseTranslate:
                     client, token = self.client_list[index]
                 else:
                     raise ValueError("tokenStrategy must be random or fallback")
+                is_stream=stream if stream != NOT_GIVEN else token.stream
                 LOGGER.debug(f"Call {token.domain} withs token {token.maskToken()}")
 
                 response = await client.chat.completions.create(
                     model=token.model_name,
                     messages=messages,
-                    stream=stream,
+                    stream=is_stream,
                     temperature=temperature,
                     frequency_penalty=frequency_penalty,
                     max_tokens=max_tokens,
