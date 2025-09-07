@@ -384,8 +384,7 @@ class CSakuraTranslate(BaseTranslate):
         tmp_context.reverse()
         json_lines = "\n".join(tmp_context)
         self.last_translations[filename] = json_lines
-        if json_lines:
-            LOGGER.info(f"{filename} 恢复了上下文")
+
 
     def check_degen_in_process(self, cn: str = ""):
         line_count = cn.count("\n") + 1
