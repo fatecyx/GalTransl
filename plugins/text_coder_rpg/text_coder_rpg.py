@@ -171,7 +171,9 @@ class text_coder_rpg(GTextPlugin):
             content = text[last_pos:start]
             if content:
                 if current_color is not None and (current_color != end_num or first_color):
-                    parts.append(f"{{color{current_color}: {content if not content.endswith("\\") else content+' '}}}")
+                    if content.endswith('\\'):
+                        content += ' '
+                    parts.append(f"{{color{current_color}: {content}}}")
                     first_color = False
                 else:
                     parts.append(content)  # 无颜色标记时直接保留
@@ -414,8 +416,7 @@ if __name__ == '__main__':
     coder.gtp_init({'Core': {}, 'Settings': {}}, {})
     lines = {
     #    "その艶やかな姿に\\N[3]の獣心がそそられた。\n\\N[3]は少女の動きに合わせて腰を突き上げはじめる。",
-        "\\C[16]«装備条件» \\\\C[7][\\\\I[2657]学園では装備不可]\\\\C[0]\\\\C[7][\\\\I[2658]学園外では装備不可]\\\\C[0]": "\\C[16]«装备条件» ＠\\C[7][\\＠学院内不可装备]＠\\C[0]\\\\C[7][\\＠学院外不可装备]\\\\C[0]",
-        "ここから先は立ち絵確認専用です。\n\\C[16]\\}※立ち絵確認専用衣装は装備することができません": "以下为立绘确认专用内容。\n{color16:＠※立绘确认专用服装不可实际装备}",
+        "「今日は温泉を一人で楽しみたい気分。\nあとは言わなくてもわかりますね\\v[302]」": "今天想一个人享受温泉。\n剩下的不用我说你也明白吧\n[302]",
     }
     for pre_line, post_line in lines.items():
         s=coder.before_src_processed(CSentense(pre_line))
