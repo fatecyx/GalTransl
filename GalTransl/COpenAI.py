@@ -21,23 +21,30 @@ class COpenAIToken:
     OpenAI 令牌
     """
 
-    def __init__(self, token: str, domain: str,model_name:str, isAvailable: bool) -> None:
+    def __init__(
+        self,
+        token: str,
+        domain: str,
+        model_name: str,
+        stream: bool = True,
+        isAvailable: bool = True,
+    ) -> None:
         self.token: str = token
         self.domain: str = domain
-        self.model_name:str=model_name
+        self.model_name: str = model_name
+        self.stream: bool = stream
         self.isAvailable: bool = isAvailable
-        self.avg_latency:float=0
-        self.req_count:int=0
+        self.avg_latency: float = 0
+        self.req_count: int = 0
 
     def maskToken(self) -> str:
         """
         返回脱敏后的 sk-*******-****
         """
-        if len(self.token)>10:
+        if len(self.token) > 10:
             return self.token[:6] + "..." + self.token[-4:]
         else:
             return self.token
-
 
 
 class COpenAITokenPool:
@@ -47,17 +54,15 @@ class COpenAITokenPool:
 
     def __init__(self, config: CProjectConfig, eng_type: str) -> None:
 
-        token_list: list[dict] = []
+        token_list: list[COpenAIToken] = []
         defaultEndpoint = "https://api.openai.com"
         section_name = "OpenAI-Compatible"
         self.tokens: list[tuple[bool, COpenAIToken]] = []
         self.force_eng_name = config.getBackendConfigSection(section_name).get(
             "rewriteModelName", ""
         )
-        self.stream=config.getBackendConfigSection(section_name).get(
-            "stream", False
-        )
-        self.timeout=config.getBackendConfigSection(section_name).get(
+        self.stream = config.getBackendConfigSection(section_name).get("stream", False)
+        self.timeout = config.getBackendConfigSection(section_name).get(
             "apiTimeout", 60
         )
 
@@ -72,13 +77,26 @@ class COpenAITokenPool:
                     else defaultEndpoint
                 )
                 if "modelName" in tokenEntry:
-                    model_name=tokenEntry["modelName"]
+                    model_name = tokenEntry["modelName"]
                 else:
-                    model_name=self.force_eng_name
+                    model_name = self.force_eng_name
+
+                if "stream" in tokenEntry:
+                    is_stream = tokenEntry["stream"]
+                else:
+                    is_stream = self.stream
 
                 domain = domain[:-1] if domain.endswith("/") else domain
-                base_path="/v1" if not re.search(r"/v\d+", domain) else ""
-                token_list.append(COpenAIToken(token, domain+base_path, model_name, True))
+                base_path = "/v1" if not re.search(r"/v\d+", domain) else ""
+                token_list.append(
+                    COpenAIToken(
+                        token,
+                        domain=domain + base_path,
+                        model_name=model_name,
+                        stream=is_stream,
+                        isAvailable=True,
+                    )
+                )
                 pass
 
         for token in token_list:
@@ -86,24 +104,23 @@ class COpenAITokenPool:
 
     async def _isTokenAvailable(
         self, token: COpenAIToken, proxy: CProxy = None
-    ) -> Tuple[bool, bool, bool, COpenAIToken]:
-
+    ) -> Tuple[bool, COpenAIToken]:
 
         try:
             st = time()
-            
+
             client = OpenAI(
                 api_key=token.token,
                 base_url=token.domain,
-                http_client=httpx.Client(proxy=proxy.addr if proxy else None)
+                http_client=httpx.Client(proxy=proxy.addr if proxy else None),
             )
             response = client.chat.completions.create(
                 model=token.model_name,
                 messages=[{"role": "user", "content": "JUST echo OK"}],
                 timeout=self.timeout,
-                stream=self.stream,
+                stream=token.stream,
             )
-            if self.stream==False:
+            if token.stream == False:
                 if len(response.choices) > 0:
                     return True, token
                 else:
@@ -114,7 +131,8 @@ class COpenAITokenPool:
                         return True, token
                     else:
                         return False, token
-                    pass
+                # 如果流响应为空，返回False
+                return False, token
         except Exception as e:
             LOGGER.error(e)
 
@@ -154,12 +172,14 @@ class COpenAITokenPool:
         检测令牌有效性
         """
         fs = []
-        with alive_bar(total=len(self.tokens),title="Testing Key……") as bar:
+        with alive_bar(total=len(self.tokens), title="Testing Key……") as bar:
             self.bar = bar
-            index=0
+            index = 0
             for _, token in self.tokens:
-                index+=1
-                LOGGER.info(f"Testing key{index}---{token.maskToken()}---{token.model_name}")
+                index += 1
+                LOGGER.info(
+                    f"Testing key{index}---{token.maskToken()}---{token.model_name}"
+                )
                 fs.append(
                     self._check_token_availability_with_retry(
                         token, proxy if proxy else None
@@ -208,7 +228,7 @@ class COpenAITokenPool:
                 rounds += 1
             except IndexError:
                 raise RuntimeError("没有可用的 API key！")
-    
+
     def get_available_token(self) -> list[COpenAIToken]:
         """
         获取所有可用的token
@@ -231,7 +251,7 @@ async def init_sakura_endpoint_queue(projectConfig: CProjectConfig) -> Optional[
 
     workersPerProject = projectConfig.getKey("workersPerProject") or 1
     sakura_endpoint_queue = asyncio.Queue()
-    section_name = "SakuraLLM" 
+    section_name = "SakuraLLM"
     if "endpoints" in projectConfig.getBackendConfigSection(section_name):
         endpoints = projectConfig.getBackendConfigSection(section_name)["endpoints"]
     else:

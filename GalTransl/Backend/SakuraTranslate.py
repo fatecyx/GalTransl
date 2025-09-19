@@ -117,8 +117,8 @@ class CSakuraTranslate(BaseTranslate):
         max_repeat = 0
         retry_count = 0
         line_lens = []
-        start_idx=trans_list[0].index
-        end_idx=trans_list[-1].index
+        start_idx: int=trans_list[0].index
+        end_idx: int=trans_list[-1].index
         idx_tip=""
         if start_idx!=end_idx:
             idx_tip=f"{start_idx}~{end_idx}"
@@ -134,13 +134,15 @@ class CSakuraTranslate(BaseTranslate):
             line_lens.append(len(tmp_text))
         input_str = "\n".join(input_list).strip("\n")
 
-        prompt_req = self.trans_prompt
+        self.restore_context(trans_list, self.contextNum, filename)
+
+        prompt_req: str = self.trans_prompt
         prompt_req = prompt_req.replace("[Input]", input_str)
         prompt_req = prompt_req.replace("[Glossary]", gptdict)
 
         last_translation=""
         if filename in self.last_translations:
-            last_translation = self.last_translations[filename]
+            last_translation:str = self.last_translations[filename]
 
         if self.eng_type in ["galtransl-v3"]:  # v3不使用多轮对话做上下文
             history = ""
@@ -235,13 +237,17 @@ class CSakuraTranslate(BaseTranslate):
                 else:
                     LOGGER.error(f"[{filename}:{idx_tip}]错误的输出：{error_message}")
 
-                    # 可拆分先对半拆
-                    if len(trans_list) > 1:
-                        LOGGER.warning(f"[{filename}:{idx_tip}]对半拆分重试")
-                        half_len = len(trans_list) // 3
-                        half_len = 1 if half_len < 1 else half_len
-                        return await self.translate(trans_list[:half_len], gptdict,filename)
-
+                    # 2次重试则对半拆
+                    if retry_count == 2 and len(trans_list) > 1 and self.smartRetry:
+                        retry_count -= 1
+                        LOGGER.warning(
+                            f"[解析错误][{filename}:{idx_tip}]连续2次出错，尝试拆分重试"
+                        )
+                        return await self.translate(
+                            trans_list[: max(len(trans_list) // 3,1)],
+                            gptdict,
+                            filename=filename,
+                        )
                     # 拆成单句后，才开始计算重试次数
                     retry_count += 1
                     # 5次重试则填充原文
@@ -251,8 +257,8 @@ class CSakuraTranslate(BaseTranslate):
                         )
                         i = 0 if i < 0 else i
                         while i < len(trans_list):
-                            trans_list[i].pre_zh = trans_list[i].post_jp
-                            trans_list[i].post_zh = trans_list[i].post_jp
+                            trans_list[i].pre_zh = "(Failed)"+trans_list[i].post_jp
+                            trans_list[i].post_zh = "(Failed)"+trans_list[i].post_jp
                             trans_list[i].trans_by = f"{self.eng_type}(Failed)"
                             result_trans_list.append(trans_list[i])
                             i = i + 1
@@ -269,7 +275,6 @@ class CSakuraTranslate(BaseTranslate):
                 retry_count = 0
 
             self._set_temp_type("precise")
-            self.last_translations[filename]=resp
             return i + 1, result_trans_list
 
     async def batch_translate(
@@ -293,9 +298,6 @@ class CSakuraTranslate(BaseTranslate):
             self.last_translations[filename]=""
 
         i = 0
-
-        self.restore_context(translist_unhit, num_pre_request, filename)
-
         trans_result_list = []
         len_trans_list = len(translist_unhit)
         transl_step_count = 0
@@ -382,8 +384,7 @@ class CSakuraTranslate(BaseTranslate):
         tmp_context.reverse()
         json_lines = "\n".join(tmp_context)
         self.last_translations[filename] = json_lines
-        if json_lines:
-            LOGGER.info(f"{filename} 恢复了上下文")
+
 
     def check_degen_in_process(self, cn: str = ""):
         line_count = cn.count("\n") + 1

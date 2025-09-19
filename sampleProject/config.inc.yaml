@@ -8,9 +8,10 @@ backendSpecific:
       - token: sk-example-key2
         endpoint: https://openrouter.ai/api/v1
         modelName: deepseek/deepseek-chat-v3-0324:free
+        stream: true # 支持为单个token设置流式请求
     tokenStrategy: "random" # 令牌策略，random随机轮询；fallback优先第一个，出现[API错误]或[解析错误]时使用下一个
     checkAvailable: true # 翻译前检查API是否可用[True/False]
-    stream: true # 流式请求[True/False]
+    stream: true # 流式请求，一般不用修改除非接口不支持流式[True/False]
     apiTimeout: 120 # 请求超时时间，单位秒
     apiErrorWait: auto # 发生API Error时的等待时间，包括频率限制。auto将自动适应[auto/0-120]
 
@@ -32,7 +33,7 @@ plugin:
 
 # 程序设置
 common:
-  gpt.numPerRequestTranslate: 8 # 单次请求翻译句子数量，推荐值 < 15
+  gpt.numPerRequestTranslate: 10 # 单次请求翻译句子数量，一般推荐不大于16[1-32]
   workersPerProject: 16 # 同时翻译n个文件（单个文件要多线程时需开启splitFile）
   sortBy: "size" # 翻译顺序，name为文件名，size为大文件优先，多线程时大文件优先可以提高整体速度[name/size]
   language: "zh-cn" # 翻译到的目标语言。[zh-cn/zh-tw/en/ja/ko/ru/fr]
@@ -47,15 +48,17 @@ common:
   start_time: "" # 定时启动，例如00:30，留空则立即启动。[00:00-23:59]
   linebreakSymbol: "auto" # 这个项目在json中使用的换行符，找问题和自动修复时用到，不影响翻译。
   skipH: false # 跳过可能触发敏感词检测的句子。[True/False]
+  smartRetry: True # 解析结果失败时尝试折半重翻与清空上下文，避免无效重试。[True/False]
   retranslFail: false # 重启时重翻所有"(Failed)"的句子。[True/False]
   retranslKey:
     - "重翻在缓存的problem或pre_jp中包含对应**关键字**的句子，去掉下面列表中的#号注释来使用，也可添加自定义的关键字。"
     - "翻译失败" # 重试翻译失败的
     #- "残留日文" # 日文平假名片假名残留
 
+  gpt.contextNum: 8 # 每次翻译携带多少前文，提高上下文连贯性，8一般已经足够[0-32]
   # ForGal/ForGal-json/ForNovel/r1
   gpt.enhance_jailbreak: False # 改善拒答[True/False]
-  gpt.change_prompt: "no" # 是否开启修改默认prompt,"AdditionalPrompt"为增加额外要求，"OverwritePrompt"为覆写原本的prompt
+  gpt.change_prompt: "no" # 是否开启修改默认prompt,"AdditionalPrompt"为增加额外要求，"OverwritePrompt"为覆写原本的prompt[no/AdditionalPrompt/OverwritePrompt]
   gpt.prompt_content: "翻译结果使用文言文" # 示例额外要求，change_prompt为AdditionalPrompt/OverwritePrompt时才生效
   # Sakura/GalTransl
   gpt.token_limit: 0 # (Sakura/Galtransl-7b)（实验性）大于0时限制每轮请求的token数量。防止爆context时可以设置为llama.cpp -c的数值除2。

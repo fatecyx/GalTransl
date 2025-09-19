@@ -13,6 +13,7 @@ from GalTransl.CSentense import CSentense, CTransList
 from GalTransl.Cache import save_transCache_to_json
 from GalTransl.Dictionary import CGptDict
 from openai import RateLimitError, AsyncOpenAI
+from openai import DefaultAioHttpClient
 from openai._types import NOT_GIVEN
 import random
 import time
@@ -77,12 +78,11 @@ class BaseTranslate:
         # 跳过h
         self.skipH = config.getKey("skipH", False)
 
-        # 流式输出模式（废弃）
-        self.streamOutputMode = config.getKey("gpt.streamOutputMode", False)
-        if config.getKey("workersPerProject") > 1:  # 多线程关闭流式输出
-            self.streamOutputMode = False
-
         self.tokenProvider = token_pool
+
+        self.contextNum:int = config.getKey("gpt.contextNum", 8)
+
+        self.smartRetry:bool=config.getKey("smartRetry", True)
 
         if config.getKey("internals.enableProxy") == True:
             self.proxyProvider = proxy_pool
@@ -139,11 +139,23 @@ class BaseTranslate:
         trust_env = False  # 不使用系统代理
         self.client_list = []
         for token in self.tokenProvider.get_available_token():
+            # client = AsyncOpenAI(
+            #     api_key=token.token,
+            #     base_url=token.domain,
+            #     max_retries=0,
+            #     http_client=httpx.AsyncClient(proxy=proxy_addr, trust_env=trust_env),
+            # )
             client = AsyncOpenAI(
                 api_key=token.token,
                 base_url=token.domain,
                 max_retries=0,
-                http_client=httpx.AsyncClient(proxy=proxy_addr, trust_env=trust_env),
+                http_client=DefaultAioHttpClient(
+                    proxy=proxy_addr,
+                    trust_env=trust_env,
+                    limits=httpx.Limits(
+                        max_keepalive_connections=None, max_connections=None
+                    ),
+                ),
             )
             self.client_list.append((client, token))
 
@@ -164,7 +176,6 @@ class BaseTranslate:
         base_try_count=0,
     ):
         api_try_count = base_try_count
-        stream = stream if stream else self.stream
         client: AsyncOpenAI
         token: COpenAIToken
         client, token = random.choices(self.client_list, k=1)[0]
@@ -189,12 +200,13 @@ class BaseTranslate:
                     client, token = self.client_list[index]
                 else:
                     raise ValueError("tokenStrategy must be random or fallback")
+                is_stream=stream if stream != NOT_GIVEN else token.stream
                 LOGGER.debug(f"Call {token.domain} withs token {token.maskToken()}")
 
                 response = await client.chat.completions.create(
                     model=token.model_name,
                     messages=messages,
-                    stream=stream,
+                    stream=is_stream,
                     temperature=temperature,
                     frequency_penalty=frequency_penalty,
                     max_tokens=max_tokens,
@@ -204,18 +216,20 @@ class BaseTranslate:
                 )
                 result = ""
                 lastline = ""
-                if stream:
+                if is_stream:
                     async for chunk in response:
                         if not chunk.choices:
                             continue
-                        if hasattr(chunk.choices[0].delta,"reasoning_content"):
-                            lastline = lastline + (chunk.choices[0].delta.reasoning_content or "")
-                        if hasattr(chunk.choices[0].delta,"content"):
-                            result = result+ (chunk.choices[0].delta.content or "")
+                        if hasattr(chunk.choices[0].delta, "reasoning_content"):
+                            lastline = lastline + (
+                                chunk.choices[0].delta.reasoning_content or ""
+                            )
+                        if hasattr(chunk.choices[0].delta, "content"):
+                            result = result + (chunk.choices[0].delta.content or "")
                             lastline = lastline + (chunk.choices[0].delta.content or "")
                         if "\n" in lastline:
                             if self.pj_config.active_workers == 1:
-                                lastline_sp=lastline.split("\n")
+                                lastline_sp = lastline.split("\n")
                                 print("\n".join(lastline_sp[:-1]))
                                 lastline = lastline_sp[-1]
                 else:
@@ -294,14 +308,6 @@ class BaseTranslate:
             self.reset_conversation()
             self.last_file_name = filename
         i = 0
-
-        if (
-            self.eng_type != "unoffapi"
-            and self.restore_context_mode
-            and len(self.chatbot.conversation["default"]) == 1
-        ):
-            if not proofread:
-                self.restore_context(translist_unhit, num_pre_request)
 
         trans_result_list = []
         len_trans_list = len(translist_unhit)
