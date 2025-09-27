@@ -1,15 +1,17 @@
 from typing import List, Dict, Any, Optional, Union, Tuple
-from os import makedirs, cpu_count, sep as os_sep
+from os import makedirs, cpu_count, sep as os_sep,listdir
 from os.path import join as joinpath, exists as isPathExists, dirname
+from venv import logger
 from alive_progress import alive_bar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import time
 import asyncio
+import shutil
 from dataclasses import dataclass
+
 from GalTransl import LOGGER
 from GalTransl.i18n import get_text, GT_LANG
 from GalTransl.Cache import get_transCache_from_json
-
 from GalTransl.ConfigHelper import initDictList, CProjectConfig
 from GalTransl.Dictionary import CGptDict, CNormalDic
 from GalTransl.Problem import find_problems
@@ -205,6 +207,19 @@ async def doLLMTranslate(
         projectConfig.name_replaceDict = load_name_table(
             name_replaceDict_path_xlsx, name_replaceDict_firstime,total_chunks,projectConfig
         )
+
+    # 如果cache_dir内有文件则备份到cache_dir_autobak
+    if listdir(cache_dir):
+        cache_bak_dir=cache_dir+"_autobak"
+        try:
+            makedirs(cache_bak_dir, exist_ok=True)
+            if listdir(cache_bak_dir):
+                shutil.rmtree(cache_bak_dir)
+            shutil.copytree(cache_dir,cache_bak_dir,dirs_exist_ok=True)
+            LOGGER.info(f"自动备份：上一次的翻译缓存备份到 {cache_bak_dir.replace(project_dir,'(project_dir)')}")
+        except Exception as e:
+            LOGGER.warning(f"自动备份缓存失败：{e}")
+
 
     # 初始化共享的 gptapi 实例
     gptapi = await init_gptapi(projectConfig)
