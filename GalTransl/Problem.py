@@ -10,6 +10,7 @@ from GalTransl.Utils import (
     contains_english,
     punctuation_zh,
     contains_korean,
+    is_all_gbk
 )
 from GalTransl.Dictionary import CGptDict
 
@@ -90,8 +91,10 @@ def find_problems(
             if contains_korean(pre_zh) and not contains_korean(pre_jp):
                 problem_list.append("本无韩文")
         if CProblemType.残留日文 in find_type:
-            if contains_japanese(pre_zh) and contains_japanese(post_zh):
-                problem_list.append("残留日文")
+            if contains_japanese(pre_zh):
+                jp_chars = contains_japanese(post_zh)
+                if jp_chars != "":
+                    problem_list.append(f"残留日文：{jp_chars}")
         if CProblemType.丢失换行 in find_type and n_symbol != "":
             if pre_jp.count(n_symbol) > post_zh.count(n_symbol):
                 problem_list.append("丢失换行")
@@ -115,18 +118,11 @@ def find_problems(
                     problem_list.append("引入英文")
         if CProblemType.语言不通 in find_type:
             tmp_text = pre_zh
-            for chr in punctuation_zh:
-                tmp_text = tmp_text.replace(chr, "")
-            if len(tmp_text) > 3:
-                import langid
+            if "zh" in projectConfig.target_lang:
+                all_gbk,non_gbk_chars = is_all_gbk(tmp_text)
+                if not all_gbk:
+                    problem_list.append(f"语言不通-非GBK：{non_gbk_chars}")
 
-                result = langid.classify(tmp_text)
-                lang_id = result[0]
-                if lang_id == "zh":
-                    lang_id = "zh-cn"
-                if lang_id != projectConfig.target_lang:
-                    if lang_id != "ja":
-                        problem_list.append(f"语言不通")
 
         if arinashi_dict != {}:
             for key, value in arinashi_dict.items():

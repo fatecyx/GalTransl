@@ -98,6 +98,8 @@ class CProjectConfig:
         self.endpointQueue = None  # 端点队列
         self.input_splitter = None  # 输入分割器
         self.active_workers: int=0
+        self.target_lang=""
+        
 
     def getProjectConfig(self) -> dict:
         """

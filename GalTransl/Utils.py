@@ -61,6 +61,7 @@ def contains_japanese(text: str) -> bool:
     katakana_range = (0x30A0, 0x30FF)
     katakana_range2 = (0xFF66, 0xFF9F)
 
+    jp_chars = set()
     # 检查字符串中的每个字符
     for char in text:
         # 黑名单
@@ -74,8 +75,8 @@ def contains_japanese(text: str) -> bool:
             or katakana_range[0] <= code_point <= katakana_range[1]
             or katakana_range2[0] <= code_point <= katakana_range2[1]
         ):
-            return True
-    return False
+            jp_chars.add(char)
+    return "".join(jp_chars)
 
 
 def contains_korean(text: str) -> bool:
@@ -167,6 +168,21 @@ def is_all_chinese(text: str) -> bool:
     # 如果循环正常结束，说明所有字符都是中文字符
     return True
 
+def is_all_gbk(s):
+    if s == "":
+        return True
+    
+    non_gbk_chars = set()
+    for char in s:
+        try:
+            char.encode('gbk')
+        except UnicodeEncodeError:
+            non_gbk_chars.add(char)
+    
+    if not non_gbk_chars:
+        return True,""
+    else:
+        return False, ''.join(non_gbk_chars)
 
 def contains_english(text: str) -> bool:
     """
