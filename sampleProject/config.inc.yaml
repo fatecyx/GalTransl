@@ -3,10 +3,10 @@ backendSpecific:
   OpenAI-Compatible: # (ForGal/ForNovel/r1/Gendic)OpenAI API兼容接口通用
     tokens:
       - token: sk-example-key1
-        endpoint: https://api.deepseek.com # 请求地址，加不加/v1都行
+        endpoint: https://api.deepseek.com # 请求地址
         modelName: deepseek-chat
       - token: sk-example-key2
-        endpoint: https://openrouter.ai/api/v1
+        endpoint: https://openrouter.ai/api/v1/ # /结尾则不自动补v1
         modelName: deepseek/deepseek-chat-v3-0324:free
         stream: true # 支持为单个token设置流式请求
     tokenStrategy: "random" # 令牌策略，random随机轮询；fallback优先第一个，出现[API错误]或[解析错误]时使用下一个
