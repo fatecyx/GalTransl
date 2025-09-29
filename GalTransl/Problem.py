@@ -103,24 +103,31 @@ def find_problems(
                 problem_list.append("多加换行")
         if CProblemType.比日文长 in find_type or CProblemType.比日文长严格 in find_type:
             len_beta = 1.3
+            min_diff=8
             if CProblemType.比日文长严格 in find_type:
                 len_beta = 1.0
-            if len(post_zh) > len(pre_jp) * len_beta:
+                min_diff=0
+            if len(post_zh) > len(pre_jp) * len_beta and len(post_zh)-len(pre_jp)>=min_diff:
                 problem_list.append(
-                    f"比日文长{round(len(post_zh)/max(len(pre_jp),0.1),1)}倍"
+                    f"比日文长{round(len(post_zh)/max(len(pre_jp),0.1),1)}倍({len(post_zh)-len(pre_jp)}字符)"
+
                 )
         if CProblemType.字典使用 in find_type:
             if val := gpt_dict.check_dic_use(pre_zh, tran):
                 problem_list.append(val)
         if CProblemType.引入英文 in find_type:
             if not contains_english(post_jp) and contains_english(pre_zh):
-                if contains_english(post_zh):  # 修了的不显示
-                    problem_list.append("引入英文")
+                eng_chars= contains_english(post_zh)
+                if eng_chars!="":
+                    problem_list.append(f"引入英文：{eng_chars}")
         if CProblemType.语言不通 in find_type:
             tmp_text = pre_zh
             if "zh" in projectConfig.target_lang:
-                all_gbk,non_gbk_chars = is_all_gbk(tmp_text)
-                if not all_gbk:
+                non_gbk_whites=["♪","♥"]
+                non_gbk_chars = str(is_all_gbk(tmp_text))
+                for non_gbk_white in non_gbk_whites:
+                    non_gbk_chars = non_gbk_chars.replace(non_gbk_white,"")
+                if non_gbk_chars !="":
                     problem_list.append(f"语言不通-非GBK：{non_gbk_chars}")
 
 

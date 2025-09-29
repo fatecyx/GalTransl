@@ -179,10 +179,10 @@ def is_all_gbk(s):
         except UnicodeEncodeError:
             non_gbk_chars.add(char)
     
-    if not non_gbk_chars:
-        return True,""
-    else:
-        return False, ''.join(non_gbk_chars)
+    return "".join(non_gbk_chars)
+
+
+
 
 def contains_english(text: str) -> bool:
     """
@@ -200,6 +200,7 @@ def contains_english(text: str) -> bool:
     english_range3 = (0xFF21, 0xFF3A)
     english_range4 = (0xFF41, 0xFF5A)
 
+    eng_chars = ""
     # 检查字符串中的每个字符
     for char in text:
         # 获取字符的 Unicode 码点
@@ -211,8 +212,8 @@ def contains_english(text: str) -> bool:
             or english_range3[0] <= code_point <= english_range3[1]
             or english_range4[0] <= code_point <= english_range4[1]
         ):
-            return True
-    return False
+            eng_chars += char
+    return eng_chars
 
 
 def extract_code_blocks(content: str) -> Tuple[List[str], List[str]]:
