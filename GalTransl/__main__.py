@@ -52,9 +52,7 @@ def worker(project_dir: str, config_file_name: str, translator: str, show_banner
     except RuntimeError as ex:
         LOGGER.error(get_text("program_error", GT_LANG, ex))
     except BaseException as ex:
-        LOGGER.error(get_text("error_unexpected", GT_LANG, str(ex)))
-        LOGGER.debug("Detailed error information:", exc_info=True)
-        traceback.print_exception(type(ex), ex, ex.__traceback__)
+        LOGGER.error(get_text("error_unexpected", GT_LANG, str(ex)),exc_info=True)
     finally:
         try:
             loop.close()

@@ -70,6 +70,7 @@ async def doLLMTranslate(
     input_dir = projectConfig.getInputPath()
     output_dir = projectConfig.getOutputPath()
     cache_dir = projectConfig.getCachePath()
+    cache_bak_dir=cache_dir+"_autobak"
     pre_dic_list = projectConfig.getDictCfgSection()["preDict"]
     post_dic_list = projectConfig.getDictCfgSection()["postDict"]
     gpt_dic_list = projectConfig.getDictCfgSection()["gpt.dict"]
@@ -86,6 +87,7 @@ async def doLLMTranslate(
     
     makedirs(output_dir, exist_ok=True)
     makedirs(cache_dir, exist_ok=True)
+    makedirs(cache_bak_dir, exist_ok=True)
 
     # 语言设置
     if val := projectConfig.getKey("language"):
@@ -141,8 +143,8 @@ async def doLLMTranslate(
             result = await task_func
             return result
         except Exception as e:
-            LOGGER.error(get_text("task_execution_failed", GT_LANG, e),exc_info=True)   
-            return None
+            LOGGER.error(get_text("task_execution_failed", GT_LANG, e))   
+            raise e
 
     soryBy = projectConfig.getKey("sortBy", "name")
     if soryBy == "name":
@@ -207,19 +209,6 @@ async def doLLMTranslate(
         projectConfig.name_replaceDict = load_name_table(
             name_replaceDict_path_xlsx, name_replaceDict_firstime,total_chunks,projectConfig
         )
-
-    # 如果cache_dir内有文件则备份到cache_dir_autobak
-    if listdir(cache_dir):
-        cache_bak_dir=cache_dir+"_autobak"
-        try:
-            makedirs(cache_bak_dir, exist_ok=True)
-            if listdir(cache_bak_dir):
-                shutil.rmtree(cache_bak_dir)
-            shutil.copytree(cache_dir,cache_bak_dir,dirs_exist_ok=True)
-            LOGGER.info(f"自动备份：上一次的翻译缓存备份到 {cache_bak_dir.replace(project_dir,'(project_dir)')}")
-        except Exception as e:
-            LOGGER.warning(f"自动备份缓存失败：{e}")
-
 
     # 初始化共享的 gptapi 实例
     gptapi = await init_gptapi(projectConfig)
@@ -294,6 +283,12 @@ async def doLLMTranslSingleChunk(
             cache_dir,
             file_name + (f"_{file_index}" if total_splits > 1 else ""),
         )
+        cache_bak_dir=cache_dir+"_autobak"
+        cache_bak_path = joinpath(
+            cache_bak_dir,
+            file_name + (f"_{file_index}" if total_splits > 1 else ""),
+        )
+
         part_info = f" (part {file_index+1}/{total_splits})" if total_splits > 1 else ""
         LOGGER.info(f">>> 开始翻译 (project_dir){split_chunk.file_path.replace(proj_dir,'')}")
         LOGGER.debug(f"文件 {file_name} 分块 {file_index+1}/{total_splits}:")
@@ -341,6 +336,12 @@ async def doLLMTranslSingleChunk(
             retran_key=projectConfig.getKey("retranslKey"),
             eng_type=eng_type,
         )
+
+        # 备份缓存文件
+        try:
+            shutil.copyfile(cache_file_path,cache_bak_path)
+        except Exception as e:
+            LOGGER.warning(f"自动备份缓存失败：{e}")
 
         if len(translist_hit) > 0:
             projectConfig.bar(len(translist_hit), skipped=True) # 更新进度条

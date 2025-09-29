@@ -111,7 +111,8 @@ async def get_transCache_from_json(
             except Exception as e:
                 LOGGER.error(str(e))
                 LOGGER.error(get_text("cache_read_error", GT_LANG, cache_file_path))
-                return [],trans_list
+                raise e
+
 
     for tran in trans_list:
         # 忽略jp为空的句子
