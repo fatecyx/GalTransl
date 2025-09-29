@@ -86,12 +86,12 @@ class COpenAITokenPool:
                 else:
                     is_stream = self.stream
 
-                if domain.endswith("/"):
+                if domain.endswith("/chat/completions"):
                     base_path=""
+                    domain=domain.replace("/chat/completions", "")
                 else:
                     base_path = "/v1" if not re.search(r"/v\d+", domain) else ""
-                domain=domain + base_path
-                domain=domain.strip("/")
+                domain=domain.strip("/") + base_path
                 token_list.append(
                     COpenAIToken(
                         token,
@@ -138,7 +138,8 @@ class COpenAITokenPool:
                 # 如果流响应为空，返回False
                 return False, token
         except Exception as e:
-            LOGGER.error(e)
+            LOGGER.error(e, exc_info=True)
+
 
             LOGGER.debug(
                 "we got exception in testing OpenAI token %s", token.maskToken()
