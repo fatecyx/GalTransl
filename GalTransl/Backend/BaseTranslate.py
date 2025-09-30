@@ -265,11 +265,11 @@ class BaseTranslate:
                     if file_name != "" and file_name[:1] != "[":
                         file_name = f"[{file_name}]"
                     try:
-                        LOGGER.error(
+                        LOGGER.warning(
                             f"[API Error]{token_info}{file_name} {response.model_extra['error']} sleeping {sleep_time}s"
                         )
                     except:
-                        LOGGER.error(
+                        LOGGER.warning(
                             f"[API Error]{token_info}{file_name} {e} sleeping {sleep_time}s"
                         )
 

@@ -214,7 +214,7 @@ class ForGalTranslate(BaseTranslate):
                 error_flag = False  # 部分解析
 
             if error_flag:
-                LOGGER.error(
+                LOGGER.warning(
                     f"[解析错误][{filename}:{idx_tip}]解析结果出错：{error_message}"
                 )
                 retry_count += 1

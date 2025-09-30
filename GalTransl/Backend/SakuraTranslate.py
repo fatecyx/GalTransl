@@ -235,7 +235,7 @@ class CSakuraTranslate(BaseTranslate):
                         result_trans_list.append(trans_list[i])
                         i = i + 1
                 else:
-                    LOGGER.error(f"[{filename}:{idx_tip}]错误的输出：{error_message}")
+                    LOGGER.warning(f"[{filename}:{idx_tip}]错误的输出：{error_message}")
 
                     # 2次重试则对半拆
                     if retry_count == 2 and len(trans_list) > 1 and self.smartRetry:
