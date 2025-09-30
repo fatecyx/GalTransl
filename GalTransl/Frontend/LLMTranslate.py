@@ -339,7 +339,8 @@ async def doLLMTranslSingleChunk(
 
         # 备份缓存文件
         try:
-            shutil.copyfile(cache_file_path,cache_bak_path)
+            if isPathExists(cache_file_path):
+                shutil.copyfile(cache_file_path,cache_bak_path)
         except Exception as e:
             LOGGER.warning(f"自动备份缓存失败：{e}")
 
