@@ -243,7 +243,7 @@ class BaseTranslate:
             except Exception as e:
                 api_try_count += 1
                 # gemini no_candidates
-                if "no_candidates" in str(e) and api_try_count > 1:
+                if "candidates" in str(e) and api_try_count > 1:
                     return "", token
                 if self.apiErrorWait >= 0:
                     sleep_time = self.apiErrorWait + random.random()
