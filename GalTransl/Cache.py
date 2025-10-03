@@ -69,12 +69,8 @@ async def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_
             await f.write(json_data)
         
         # 原子操作：重命名临时文件为目标文件
-        # 在Windows上，如果目标文件存在需要先删除
-        if os.path.exists(cache_file_path):
-            os.remove(cache_file_path)
-        os.rename(temp_file_path, cache_file_path)
+        shutil.move(temp_file_path, cache_file_path)
         #LOGGER.debug(f"[cache]缓存已安全保存到：{cache_file_path}")
-            
     except Exception as e:
         LOGGER.error(f"[cache]保存缓存失败：{str(e)}")
         
