@@ -138,11 +138,11 @@ class COpenAITokenPool:
                 # 如果流响应为空，返回False
                 return False, token
         except Exception as e:
-            LOGGER.error(e, exc_info=True)
+            LOGGER.error(e)
 
 
             LOGGER.debug(
-                "we got exception in testing OpenAI token %s", token.maskToken()
+                "we got exception in testing OpenAI token %s", token.maskToken(), exc_info=True
             )
             return False, token
         finally:
