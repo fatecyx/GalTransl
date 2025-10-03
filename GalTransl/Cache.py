@@ -6,7 +6,7 @@ from GalTransl.CSentense import CTransList
 from GalTransl import LOGGER
 from typing import List
 import orjson
-import os
+import os,shutil
 from GalTransl.i18n import get_text,GT_LANG
 import aiofiles
 
@@ -14,6 +14,7 @@ import aiofiles
 async def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_save=False):
     """
     此函数将翻译缓存保存到 JSON 文件中。
+    使用原子写入机制，避免程序异常关闭时写入不完整的问题。
 
     Args:
         trans_list (CTransList): 要保存的翻译列表。
@@ -22,6 +23,9 @@ async def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_
     """
     if not cache_file_path.endswith(".json"):
         cache_file_path += ".json"
+
+    # 创建临时文件路径，用于原子写入
+    temp_file_path = cache_file_path + ".tmp"
 
     cache_json = []
 
@@ -58,8 +62,31 @@ async def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_
             cache_obj["post_zh_preview"] = tran.post_zh
         cache_json.append(cache_obj)
 
-    async with aiofiles.open(cache_file_path, mode="wb") as f:
-        await f.write(orjson.dumps(cache_json, option=orjson.OPT_INDENT_2))
+    try:
+        # 原子写入：先写入临时文件
+        async with aiofiles.open(temp_file_path, mode="wb") as f:
+            json_data = orjson.dumps(cache_json, option=orjson.OPT_INDENT_2)
+            await f.write(json_data)
+        
+        # 原子操作：重命名临时文件为目标文件
+        # 在Windows上，如果目标文件存在需要先删除
+        if os.path.exists(cache_file_path):
+            os.remove(cache_file_path)
+        os.rename(temp_file_path, cache_file_path)
+        #LOGGER.debug(f"[cache]缓存已安全保存到：{cache_file_path}")
+            
+    except Exception as e:
+        LOGGER.error(f"[cache]保存缓存失败：{str(e)}")
+        
+        # 清理临时文件
+        if os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except:
+                pass
+        
+        # 重新抛出异常
+        raise e
 
 
 async def get_transCache_from_json(
