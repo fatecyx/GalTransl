@@ -118,7 +118,7 @@ def find_problems(
         if CProblemType.引入英文 in find_type:
             if not contains_english(post_jp) and contains_english(pre_zh):
                 eng_chars= contains_english(post_zh)
-                if eng_chars!="":
+                if len(eng_chars)>4:
                     problem_list.append(f"引入英文：{eng_chars}")
         if CProblemType.语言不通 in find_type:
             tmp_text = pre_zh

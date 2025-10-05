@@ -184,7 +184,7 @@ def is_all_gbk(s):
 
 
 
-def contains_english(text: str) -> bool:
+def contains_english(text: str) -> str:
     """
     此函数接受一个字符串作为输入，检查其中是否包含英文字符。
 
