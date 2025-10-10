@@ -52,6 +52,7 @@ class CProblemType(Enum):
     引入英文 = 8
     比日文长严格 = 9
     语言不通 = 10
+    缺控制符 = 11
 
 
 class CProjectConfig:

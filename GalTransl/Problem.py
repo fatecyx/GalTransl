@@ -10,7 +10,8 @@ from GalTransl.Utils import (
     contains_english,
     punctuation_zh,
     contains_korean,
-    is_all_gbk
+    is_all_gbk,
+    extract_control_substrings
 )
 from GalTransl.Dictionary import CGptDict
 
@@ -121,15 +122,23 @@ def find_problems(
                 if len(eng_chars)>4:
                     problem_list.append(f"引入英文：{eng_chars}")
         if CProblemType.语言不通 in find_type:
-            tmp_text = pre_zh
             if "zh" in projectConfig.target_lang:
-                non_gbk_whites=["♪","♥"]
-                non_gbk_chars = str(is_all_gbk(tmp_text))
-                for non_gbk_white in non_gbk_whites:
-                    non_gbk_chars = non_gbk_chars.replace(non_gbk_white,"")
-                if non_gbk_chars !="":
-                    problem_list.append(f"语言不通-非GBK：{non_gbk_chars}")
-
+                if not is_all_gbk(pre_zh):
+                    non_gbk_whites=["♪","♥"]
+                    non_gbk_chars = is_all_gbk(post_zh)
+                    for non_gbk_white in non_gbk_whites:
+                        non_gbk_chars = non_gbk_chars.replace(non_gbk_white,"")
+                    if non_gbk_chars !="":
+                        problem_list.append(f"语言不通-非GBK：{non_gbk_chars}")
+        if CProblemType.缺控制符 in find_type:
+            control_list_jp=extract_control_substrings(pre_jp)
+            control_list_zh=extract_control_substrings(post_zh)
+            lost_list=[]
+            for control_jp in control_list_jp:
+                if control_jp not in control_list_zh:
+                    lost_list.append(control_jp)
+            if lost_list:
+                problem_list.append(f"缺控制符：{' '.join(lost_list)}")
 
         if arinashi_dict != {}:
             for key, value in arinashi_dict.items():

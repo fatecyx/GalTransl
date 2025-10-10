@@ -8,6 +8,7 @@ from typing import Tuple, List
 from collections import Counter
 from re import compile
 import requests
+import re
 
 PATTERN_CODE_BLOCK = compile(r"```([\w]*)\n([\s\S]*?)\n```")
 whitespace = " \t\n\r\v\f"
@@ -21,6 +22,31 @@ punctuation = r"""!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"""
 punctuation_zh = "。？！…（）；：《》「」『』【】"
 printable = digits + ascii_letters + punctuation + whitespace
 
+
+def extract_control_substrings(text: str) -> list[str]:
+    """
+    提取文本中所有以英文标点符号开头，且仅包含英文字母、数字和标点符号的子串。
+
+    Args:
+        text: 输入的文本字符串。
+
+    Returns:
+        一个包含所有匹配子串的列表。
+    """
+    # 定义允许的字符集：英文字母、数字和标点符号
+    # string.punctuation 包含 !"#$%&'()*+,-./:;<=>?@[]^_`{|}~
+    # string.ascii_letters 包含 a-z 和 A-Z
+    # string.digits 包含 0-9
+    allowed_chars = ascii_letters + digits + punctuation
+    first_punctuation = r"""!#$%&()*+-./:;<=>?@[\]^_`{|}~"""
+    # 构建正则表达式：
+    # 1. [{re.escape(string.punctuation)}] - 匹配一个英文标点符号作为开头
+    # 2. [{re.escape(allowed_chars)}]* - 匹配零个或多个由允许字符组成的后续部分
+    # re.escape() 用于转义字符集中的特殊正则字符（如 `[` `]` `^` `-`）
+    pattern = f"[{re.escape(first_punctuation)}][{re.escape(allowed_chars)}]*"
+    
+    # 使用 re.findall 查找所有匹配的子串
+    return re.findall(pattern, text)
 
 def get_most_common_char(input_text: str) -> Tuple[str, int]:
     """
@@ -170,7 +196,7 @@ def is_all_chinese(text: str) -> bool:
 
 def is_all_gbk(s):
     if s == "":
-        return True
+        return ""
     
     non_gbk_chars = set()
     for char in s:
@@ -179,7 +205,7 @@ def is_all_gbk(s):
         except UnicodeEncodeError:
             non_gbk_chars.add(char)
     
-    return "".join(non_gbk_chars)
+    return str("".join(non_gbk_chars))
 
 
 
