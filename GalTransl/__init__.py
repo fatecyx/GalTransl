@@ -51,7 +51,7 @@ PROGRAM_SPLASH4 = r"""
 ALL_BANNERS = [PROGRAM_SPLASH1, PROGRAM_SPLASH2, PROGRAM_SPLASH3, PROGRAM_SPLASH4]
 PROGRAM_SPLASH = ALL_BANNERS[localtime().tm_mday % 4]
 
-GALTRANSL_VERSION = "6.6.6"
+GALTRANSL_VERSION = "6.7.3"
 AUTHOR = "xd2333"
 CONTRIBUTORS = "ryank231231, PiDanShouRouZhouXD, Noriverwater, Isotr0py, adsf0427, pipixia244, gulaodeng, sakura-umi, lifegpc, natsumerinchan, szyzbg"
 
@@ -64,25 +64,21 @@ TRANSLATOR_SUPPORTED = {
         "zh-cn": "(OAI/Claude/Deepseek)(原GPT4)翻译Gal时使用，json格式输入，兼容性好。默认gpt-4模型",
         "en": "(OAI/Claude/Deepseek)Customized template for Gal translation, json input. Default model: gpt-4.1"
     },
-    "ForGal-tsv": {
-        "zh-cn": "(OAI/Claude/Deepseek)翻译Gal时使用，tsv格式输入，省token。默认deepseek-chat模型",
-        "en": " (OAI/Claude/Deepseek)Customized template for Gal translation,save tokens. Default model: deepseek-chat"
-    },
     "ForNovel": {
         "zh-cn": "(OAI/Claude/Deepseek)翻译轻小说等其他文本时使用，区别是输入不带name字段。默认deepseek-chat模型",
         "en": " (OAI/Claude/Deepseek)Customized template for Novel translation. Default model: deepseek-chat"
     },
-    "r1": {
-        "zh-cn": "Deepseek-R1模型专用翻译模板，默认deepseek-reasoner模型",
-        "en": "Specialized translation template for Deepseek-R1 model. Default model: deepseek-reasoner"
-    },
-    "sakura-v1.0": {
-        "zh-cn": "（适用sakura-v1.0）为翻译轻小说/Gal开展大规模训练的本地模型，具有多个型号和大小",
-        "en": "(For v1.0 prompt) Locally trained model for light novel/Gal translation, available in multiple sizes"
+    "ForGal-tsv": {
+        "zh-cn": "(OAI/Claude/Deepseek)翻译Gal时使用，tsv格式输入，省token。默认deepseek-chat模型",
+        "en": " (OAI/Claude/Deepseek)Customized template for Gal translation,save tokens. Default model: deepseek-chat"
     },
     "galtransl-v3": {
         "zh-cn": "为翻译Gal基于Sakura进一步优化的本地模型",
         "en": "Further optimized local small model based on Sakura for Gal translation"
+    },
+    "sakura-v1.0": {
+        "zh-cn": "（适用sakura-v1.0）为翻译轻小说/Gal开展大规模训练的本地模型，具有多个型号和大小",
+        "en": "(For v1.0 prompt) Locally trained model for light novel/Gal translation, available in multiple sizes"
     },
     "GenDic": {
         "zh-cn": "自动化构建GPT字典，需要接大模型如Deepseek-V3",

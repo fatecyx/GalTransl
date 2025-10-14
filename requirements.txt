@@ -8,14 +8,12 @@ tiktoken
 colorlog
 openpyxl
 orjson
-EbookLib
 beautifulsoup4
 playsound3
 fasttext-predict
 InquirerPy
 alive-progress
 vaporetto
-langid
 aiofiles
 httpx-aiohttp
 

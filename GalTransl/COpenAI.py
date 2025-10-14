@@ -86,12 +86,16 @@ class COpenAITokenPool:
                 else:
                     is_stream = self.stream
 
-                domain = domain[:-1] if domain.endswith("/") else domain
-                base_path = "/v1" if not re.search(r"/v\d+", domain) else ""
+                if domain.endswith("/chat/completions"):
+                    base_path=""
+                    domain=domain.replace("/chat/completions", "")
+                else:
+                    base_path = "/v1" if not re.search(r"/v\d+", domain) else ""
+                domain=domain.strip("/") + base_path
                 token_list.append(
                     COpenAIToken(
                         token,
-                        domain=domain + base_path,
+                        domain=domain,
                         model_name=model_name,
                         stream=is_stream,
                         isAvailable=True,
@@ -108,7 +112,7 @@ class COpenAITokenPool:
 
         try:
             st = time()
-
+            LOGGER.info(f"API URL: {token.domain}/chat/completions")
             client = OpenAI(
                 api_key=token.token,
                 base_url=token.domain,
@@ -136,8 +140,9 @@ class COpenAITokenPool:
         except Exception as e:
             LOGGER.error(e)
 
+
             LOGGER.debug(
-                "we got exception in testing OpenAI token %s", token.maskToken()
+                "we got exception in testing OpenAI token %s", token.maskToken(), exc_info=True
             )
             return False, token
         finally:

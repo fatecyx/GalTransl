@@ -1,15 +1,17 @@
 from typing import List, Dict, Any, Optional, Union, Tuple
-from os import makedirs, cpu_count, sep as os_sep
+from os import makedirs, cpu_count, sep as os_sep,listdir
 from os.path import join as joinpath, exists as isPathExists, dirname
+from venv import logger
 from alive_progress import alive_bar
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import time
 import asyncio
+import shutil
 from dataclasses import dataclass
+
 from GalTransl import LOGGER
 from GalTransl.i18n import get_text, GT_LANG
 from GalTransl.Cache import get_transCache_from_json
-
 from GalTransl.ConfigHelper import initDictList, CProjectConfig
 from GalTransl.Dictionary import CGptDict, CNormalDic
 from GalTransl.Problem import find_problems
@@ -68,6 +70,7 @@ async def doLLMTranslate(
     input_dir = projectConfig.getInputPath()
     output_dir = projectConfig.getOutputPath()
     cache_dir = projectConfig.getCachePath()
+    cache_bak_dir=cache_dir+"_autobak"
     pre_dic_list = projectConfig.getDictCfgSection()["preDict"]
     post_dic_list = projectConfig.getDictCfgSection()["postDict"]
     gpt_dic_list = projectConfig.getDictCfgSection()["gpt.dict"]
@@ -81,9 +84,10 @@ async def doLLMTranslate(
     SplitChunkMetadata.clear_file_finished_chunk()
     total_chunks = []
     projectConfig.active_workers = 1
-
+    
     makedirs(output_dir, exist_ok=True)
     makedirs(cache_dir, exist_ok=True)
+    makedirs(cache_bak_dir, exist_ok=True)
 
     # 语言设置
     if val := projectConfig.getKey("language"):
@@ -139,8 +143,8 @@ async def doLLMTranslate(
             result = await task_func
             return result
         except Exception as e:
-            LOGGER.error(get_text("task_execution_failed", GT_LANG, e),exc_info=True)
-            return None
+            LOGGER.error(get_text("task_execution_failed", GT_LANG, e))
+            raise e
 
     soryBy = projectConfig.getKey("sortBy", "name")
     if soryBy == "name":
@@ -279,6 +283,12 @@ async def doLLMTranslSingleChunk(
             cache_dir,
             file_name + (f"_{file_index}" if total_splits > 1 else ""),
         )
+        cache_bak_dir=cache_dir+"_autobak"
+        cache_bak_path = joinpath(
+            cache_bak_dir,
+            file_name + (f"_{file_index}" if total_splits > 1 else ""),
+        )
+
         part_info = f" (part {file_index+1}/{total_splits})" if total_splits > 1 else ""
         LOGGER.info(f">>> 开始翻译 (project_dir){split_chunk.file_path.replace(proj_dir,'')}")
         LOGGER.debug(f"文件 {file_name} 分块 {file_index+1}/{total_splits}:")
@@ -341,6 +351,13 @@ async def doLLMTranslSingleChunk(
             retran_key=projectConfig.getKey("retranslKey"),
             eng_type=eng_type,
         )
+
+        # 备份缓存文件
+        try:
+            if isPathExists(cache_file_path):
+                shutil.copyfile(cache_file_path,cache_bak_path)
+        except Exception as e:
+            LOGGER.warning(f"自动备份缓存失败：{e}")
 
         if len(translist_hit) > 0:
             projectConfig.bar(len(translist_hit), skipped=True) # 更新进度条

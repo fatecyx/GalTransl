@@ -10,6 +10,8 @@ from GalTransl.Utils import (
     contains_english,
     punctuation_zh,
     contains_korean,
+    is_all_gbk,
+    extract_control_substrings
 )
 from GalTransl.Dictionary import CGptDict
 
@@ -91,8 +93,10 @@ def find_problems(
             if contains_korean(pre_zh) and not contains_korean(pre_jp):
                 problem_list.append("本无韩文")
         if CProblemType.残留日文 in find_type:
-            if contains_japanese(pre_zh) and contains_japanese(post_zh):
-                problem_list.append("残留日文")
+            if contains_japanese(pre_zh):
+                jp_chars = contains_japanese(post_zh)
+                if jp_chars != "":
+                    problem_list.append(f"残留日文：{jp_chars}")
         if CProblemType.丢失换行 in find_type and n_symbol != "":
             if pre_jp.count(n_symbol) > post_zh.count(n_symbol):
                 problem_list.append("丢失换行")
@@ -101,33 +105,41 @@ def find_problems(
                 problem_list.append("多加换行")
         if CProblemType.比日文长 in find_type or CProblemType.比日文长严格 in find_type:
             len_beta = 1.3
+            min_diff=8
             if CProblemType.比日文长严格 in find_type:
                 len_beta = 1.0
-            if len(post_zh) > len(pre_jp) * len_beta:
+                min_diff=0
+            if len(post_zh) > len(pre_jp) * len_beta and len(post_zh)-len(pre_jp)>=min_diff:
                 problem_list.append(
-                    f"比日文长{round(len(post_zh)/max(len(pre_jp),0.1),1)}倍"
+                    f"比日文长{round(len(post_zh)/max(len(pre_jp),0.1),1)}倍({len(post_zh)-len(pre_jp)}字符)"
+
                 )
         if CProblemType.字典使用 in find_type:
             if val := gpt_dict.check_dic_use(pre_zh, tran):
                 problem_list.append(val)
         if CProblemType.引入英文 in find_type:
             if not contains_english(post_jp) and contains_english(pre_zh):
-                if contains_english(post_zh):  # 修了的不显示
-                    problem_list.append("引入英文")
+                eng_chars= contains_english(post_zh)
+                if len(eng_chars)>4:
+                    problem_list.append(f"引入英文：{eng_chars}")
         if CProblemType.语言不通 in find_type:
-            tmp_text = pre_zh
-            for chr in punctuation_zh:
-                tmp_text = tmp_text.replace(chr, "")
-            if len(tmp_text) > 3:
-                import langid
-
-                result = langid.classify(tmp_text)
-                lang_id = result[0]
-                if lang_id == "zh":
-                    lang_id = "zh-cn"
-                if lang_id != projectConfig.target_lang:
-                    if lang_id != "ja":
-                        problem_list.append(f"语言不通")
+            if "zh" in projectConfig.target_lang:
+                if not is_all_gbk(pre_zh):
+                    non_gbk_whites=["♪","♥"]
+                    non_gbk_chars = is_all_gbk(post_zh)
+                    for non_gbk_white in non_gbk_whites:
+                        non_gbk_chars = non_gbk_chars.replace(non_gbk_white,"")
+                    if non_gbk_chars !="":
+                        problem_list.append(f"语言不通-非GBK：{non_gbk_chars}")
+        if CProblemType.缺控制符 in find_type:
+            control_list_jp=extract_control_substrings(pre_jp)
+            control_list_zh=extract_control_substrings(post_zh)
+            lost_list=[]
+            for control_jp in control_list_jp:
+                if control_jp not in control_list_zh:
+                    lost_list.append(control_jp)
+            if lost_list:
+                problem_list.append(f"缺控制符：{' '.join(lost_list)}")
 
         if arinashi_dict != {}:
             for key, value in arinashi_dict.items():

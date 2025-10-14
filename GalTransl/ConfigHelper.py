@@ -52,6 +52,7 @@ class CProblemType(Enum):
     引入英文 = 8
     比日文长严格 = 9
     语言不通 = 10
+    缺控制符 = 11
 
 
 class CProjectConfig:
@@ -98,6 +99,8 @@ class CProjectConfig:
         self.endpointQueue = None  # 端点队列
         self.input_splitter = None  # 输入分割器
         self.active_workers: int=0
+        self.target_lang=""
+        
 
     def getProjectConfig(self) -> dict:
         """

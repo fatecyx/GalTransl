@@ -3,10 +3,10 @@ backendSpecific:
   OpenAI-Compatible: # (ForGal/ForNovel/r1/Gendic)OpenAI API兼容接口通用
     tokens:
       - token: sk-example-key1
-        endpoint: https://api.deepseek.com # 请求地址，加不加/v1都行
+        endpoint: https://api.deepseek.com # 请求地址，加不加v1都可以
         modelName: deepseek-chat
       - token: sk-example-key2
-        endpoint: https://openrouter.ai/api/v1
+        endpoint: https://openrouter.ai/api/v1/chat/completions # /chat/completions结尾则不自动补v1
         modelName: deepseek/deepseek-chat-v3-0324:free
         stream: true # 支持为单个token设置流式请求
     tokenStrategy: "random" # 令牌策略，random随机轮询；fallback优先第一个，出现[API错误]或[解析错误]时使用下一个
@@ -84,8 +84,8 @@ problemAnalyze:
     - 多加换行 # 换行符比原句多，可能导致溢出屏幕
     - 比日文长 # 比日文长1.3倍以上
     - 字典使用 # 没有按GPT字典要求翻译
+    - 语言不通 # 疑似没有被翻译成目标语言，翻译为中文时检查是否包含非GBK字符
     #- 引入英文 # 本来没有英文，译文引入了英文
-    #- 语言不通 # 疑似没有被翻译成目标语言
     #- 比日文长严格 # 严格查找，不能比日文长
 
 # 字典设置

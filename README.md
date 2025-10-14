@@ -34,7 +34,7 @@
 
 ## 导航
 * [环境准备](https://github.com/XD2333/GalTransl#环境准备)：环境与软件的安装   
-* [上手教程](https://github.com/XD2333/GalTransl#上手教程)：全流程介绍如何制作一个机翻补丁，只想看怎么使用本工具的话，可以只看第2章   
+* [上手教程](https://github.com/XD2333/GalTransl#上手教程)：全流程介绍如何制作一个机翻补丁，**只想看怎么使用本工具的话，可以直接跳转第2章的2.2节**   
 * [配置文件与翻译引擎设置](https://github.com/XD2333/GalTransl#配置文件与翻译引擎设置)：本篇详细介绍各个翻译引擎API的调用与配置方式。   
 * [GalTransl核心功能介绍](https://github.com/XD2333/GalTransl#galtransl核心功能介绍)：介绍GPT字典、缓存、普通字典、找问题等功能。
 * 后续教程已经[转移至Wiki](https://github.com/xd2333/GalTransl/wiki)
@@ -64,8 +64,10 @@
 | [VNTextProxy](https://github.com/arcusmaximus/VNTranslationTools) | 引擎工具：sjis隧道模式通用注入框架 |
 | GalTransl_DumpInjector | 脚本工具：[VNTextPatch](https://github.com/arcusmaximus/VNTranslationTools)的图形化界面，综合脚本文本提取导入工具 |
 | [SExtractor](https://github.com/satan53x/SExtractor) | 脚本工具：综合脚本文本提取导入工具 |
-| [DBTXT2Json_jp](https://github.com/XD2333/DBTXT2Json_jp) | 脚本工具：通用双行文本与json_jp互转脚本 |
-| EmEditor | 文本工具：神一样的文本编辑器。[下载](https://www.ghxi.com/emeditor.html)  |
+| [msg-tool](https://github.com/lifegpc/msg-tool) | 脚本工具：综合脚本文本提取导入工具 |
+| [DBTXT2Json_jp](https://github.com/XD2333/DBTXT2Json_jp) | 脚本工具：双行文本与json_jp互转脚本 |
+| [EmEditor](https://www.ghxi.com/emeditor.html) | 文本工具：神一样的文本编辑器，主语用于修缓存文件。  |
+| [VSCode](https://code.visualstudio.com/) | 文本工具：神一样的文本编辑器，主语用于修缓存文件。  |
 | [KeywordGacha](https://github.com/neavo/KeywordGacha) | 文本工具：使用 OpenAI 兼容接口自动生词语表 |
 
 ## 上手教程
@@ -128,42 +130,33 @@
 * **【2.2. GalTransl启动】**   
 &ensp;&ensp;&ensp;&ensp;将本项目下载下来解压到任意位置（示例中默认为D盘根目录），在项目示例文件夹`sampleProject`中，找到示例配置文件`config.inc.yaml`，将其重命名为`config.yaml`。另外，也将sampleProject文件夹改个名字，一般是游戏的名字。   
 
-&ensp;&ensp;&ensp;&ensp;本教程使用GPT3.5官方API来举例。其他引擎可参考下面[引擎使用](https://github.com/XD2333/GalTransl?tab=readme-ov-file#配置文件与翻译引擎设置)章节，对应修改示例项目的`config.yaml`即可调用。   
+&ensp;&ensp;&ensp;&ensp;本教程使用deepseek API来举例，其他模型同理，对应修改示例项目的`config.yaml`即可调用。   
 &ensp;&ensp;&ensp;&ensp;先将所有提取出的日文json文件放入示例文件夹内的`gt_input`文件夹中，然后用任意文本编辑器编辑`config.yaml`文件，按**注释**修改以下内容：
 ```yaml
-# 代理设置
-proxy:
-  enableProxy: true # 是否启用代理(true/false)
-  proxies:
-    - address: socks5://127.0.0.1:10818 # 代理地址，也可以改成http://……
+# 翻译后端相关设置
 backendSpecific:
-  GPT35: # GPT3.5 官方 API
-    tokens: # 令牌列表
-      - token: sk-xxxxxxxx # 你的令牌
-        endpoint: https://api.openai.com  # 这个令牌对应的OPENAI API请求的端点，使用转发或第三方API时需要修改
-      - token: sk-yyyyyyyy # 可以填多个令牌，如果你只有一个的话，把示例文件的这两行删掉
-        endpoint: "" # 可以填多个令牌，如果你只有一个的话，把示例文件的这两行删掉
-    defaultEndpoint: https://api.openai.com # 默认 API 端点，一般不修改
-    rewriteModelName: "" # 你可以修改这个参数来自定义想要使用的模型，如果不自定义的话，会使用默认的模型
+  OpenAI-Compatible: # (ForGal/ForNovel/r1/Gendic)OpenAI API兼容接口通用
+    tokens:
+      - token: sk-example-key1
+        endpoint: https://api.deepseek.com # 请求地址，加不加v1都可以
+        modelName: deepseek-chat
+      - token: sk-example-key2
+        endpoint: https://openrouter.ai/api/v1/chat/completions # /chat/completions结尾则不自动补v1
+        modelName: deepseek/deepseek-chat-v3-0324:free
+        stream: true # 支持为单个token设置流式请求
 ```   
-&ensp;&ensp;&ensp;&ensp;在这里需要一个openai的api key，以及需要魔法上网来走代理访问openai官方api端点。   
-&ensp;&ensp;&ensp;&ensp;如果没有api key或魔法上网的话，你还可以使用一些第三方api中转项目，例如：   
-* [GPT-API-free](https://github.com/chatanywhere/GPT_API_free)，免费API中转，提供有请求频率限制的用于测试。   
-* 一些收费api转发项目，例如：[硅基流动](https://cloud.siliconflow.cn/i/SvDatvsk)（建议设置rewriteModelName: "deepseek-ai/DeepSeek-V2.5"）、[oaipro](https://api.oaipro.com/register?aff=ceAU)等等，以上只是举例，更多中转可以谷歌，本项目不担保它们的稳定性及可用性。   
-   
-&ensp;&ensp;&ensp;&ensp;但要注意这里获取的key是第三方的key，不能用于官方API端点。如果你使用类似项目的话，做以下额外的修改：   
-```python
-  enableProxy: false # 此时不用设置代理
 
-  GPT35: 
-    tokens: 
-      - token: sk-xxxxxxxx # 你的第三方令牌
-        endpoint: https://xxxx  # 使用对应的第三方API端点，一般在中转站里都会写
+* 一些收费api转发项目，例如：[硅基流动](https://cloud.siliconflow.cn/i/SvDatvsk)（modelName: "deepseek-ai/DeepSeek-V3.1-Terminus"）、[oaipro](https://api.oaipro.com/register?aff=ceAU)等等，以上只是举例，更多中转可以谷歌，本项目不担保它们的稳定性及可用性。   
+   
+&ensp;&ensp;&ensp;&ensp;但要注意这里获取的key填入的同时要修改endpoint地址，一般在对应平台的说明里能找到：   
+```yaml
+      - token: sk-example-key1
+        endpoint: https://api.siliconflow.cn # 请求地址，加不加v1都可以
 ```   
    
-&ensp;&ensp;&ensp;&ensp;修改好项目设置后，确保你已经安装了需要的依赖（见环境准备），然后双击`run.bat`（免环境版双击exe），首先拖入项目文件夹，例如`D:\GalTransl-main\sampleProject`   
+&ensp;&ensp;&ensp;&ensp;修改好项目设置后，确保你已经安装了需要的依赖（见环境准备），然后双击`run.bat`（免环境版双击exe），首先输入拖入项目配置文件，例如`D:\GalTransl-main\sampleProject\config.inc.yaml`   
 
-接着选择gpt35:
+接着选择第一个翻译选项（现在是ForGal-json，可能与图片不对应）:
 
 ![img_gpt35](./img/img_gpt35.png)
 
@@ -171,9 +164,9 @@ backendSpecific:
 
 ![img_start](./img/img_start.png)
 
-&ensp;&ensp;&ensp;&ensp;**但是，不建议就这样开始翻译了**，请至少要先学会[GPT字典的使用](https://github.com/XD2333/GalTransl#gpt字典)，为你要翻译的gal设定好各角色的人名字典，这样才能保证基本的翻译质量。   
+&ensp;&ensp;&ensp;&ensp;**但是，不建议就这样开始翻译了**，请至少要先学会[GPT字典的使用](https://github.com/XD2333/GalTransl#gpt字典)，或者选择GenDic来生成一个人名字典，为你要翻译的gal设定好各角色的人名字典，这样才能保证基本的翻译质量。   
 
-&ensp;&ensp;&ensp;&ensp;翻译完成后，如果想手工修正，可以对缓存进行修正，并重新生成结果json，见[翻译缓存章节](https://github.com/XD2333/GalTransl#翻译缓存)
+&ensp;&ensp;&ensp;&ensp;翻译完成后，**记得修修缓存**，因为大模型经常会犯错。GalTransl会自动查找一些常见问题并记录于缓存中。可以对缓存进行修正，并重新运行程序来基于缓存重新生成结果json，见[自动化找错章节和翻译缓存章节](https://github.com/GalTransl/GalTransl#%E8%87%AA%E5%8A%A8%E5%8C%96%E6%89%BE%E9%94%99)
 
 * **【2.3. 构建中文脚本】**   
 &ensp;&ensp;&ensp;&ensp;如果你是使用GalTransl提取注入工具提取的脚本，构建同理，选择日文脚本目录、中文json目录、中文脚本保存目录，然后点'注入'，即可将文本注入回脚本。但这里面有一些坑，第四章会提到。
@@ -227,14 +220,16 @@ GalTransl提取注入工具的VNTextPatch模式注入脚本时默认是以sjis�
 
 当使用sjis隧道模式时，将`script_cn`内的`sjis_ext.bin`文件移动到游戏目录内，然后将useful_tools\VNTextProxy内的所有dll逐个丢到游戏目录内(一般推荐先试version.dll，或使用PEID/DIE等工具查输入表)，运行游戏，看有没有哪个dll可以正确的hook游戏并让不显示的文本可以正常显示（不正常的话那些地方会是空的）。不正常的话，删掉这个DLL，换下一个。[详细设置见此](https://github.com/XD2333/GalTransl/tree/main/useful_tools/VNTextProxy)
 
-**jis替换**：来自AtomCrafty大佬的[UniversalInjectorFramework(通用注入框架)](https://github.com/AtomCrafty/UniversalInjectorFramework#character-substitution)项目，也是通过DLL劫持技术HOOK游戏，并可以将某个字符根据设置替换成指定的另一个字符，不限编码。我建立了[一套替换字典](https://github.com/XD2333/GalTransl_DumpInjector/blob/main/hanzi2kanji_table.txt)，按一些规则梳理了jis编码内不支持的简中汉字与jis支持的日文汉字的映射关系，可以满足99.99%常用简体中文汉字的正常显示(见hanzi2kanji_table.txt)，并将替换功能写在了GalTransl提取注入工具内(现在[SExtractor](https://github.com/satan53x/SExtractor)也支持替换)。在替换后结合UniversalInjectorFramework的动态Hook替换功能在游戏中将这些日文汉字替换回简中文字，实现游戏的正常显示。
+**jis替换**：来自AtomCrafty大佬的[UniversalInjectorFramework(通用注入框架)](https://github.com/AtomCrafty/UniversalInjectorFramework#character-substitution)项目，也是通过DLL劫持技术HOOK游戏，并可以将某个字符根据设置替换成指定的另一个字符，不限编码。我建立了[一套替换字典](https://github.com/XD2333/GalTransl_DumpInjector/blob/main/hanzi2kanji_table.txt)，按一些规则梳理了jis编码内不支持的简中汉字与jis支持的日文汉字的映射关系，可以满足99.99%常用简体中文汉字的正常显示(见hanzi2kanji_table.txt)，并将替换功能写在了GalTransl提取注入工具内(新：现在[SExtractor](https://github.com/satan53x/SExtractor)也支持替换，并且更好用)。在替换后结合UniversalInjectorFramework的动态Hook替换功能在游戏中将这些日文汉字替换回简中文字，实现游戏的正常显示。
 
 当使用sjis替换模式时，可以先运行一遍GalTransl提取注入工具的注入文本，获取游戏不支持的文字列表（注入后会提示"sjis_ext.bin包含文字：xxx"），然后，勾选"sjis替换模式注入"，把这些文字复制到右边的文本框内，再点击注入。注入后会获得一个sjis替换模式配置。
 
-打开useful_tools/UniversalInjectorFramework文件夹，里面也是很多dll，也是逐个尝试，一般推荐先试winmm.dll，把目录内的uif_config.json一并复制到游戏目录，然后编辑这个json，按GalTransl提取注入工具提供的配置填写`source_characters`和`target_characters`。然后运行游戏，如果游戏可以正常运行，并且弹出了一个像这样的控制台：
+打开useful_tools/UniversalInjectorFramework文件夹，里面也是很多dll，也是逐个尝试，一般推荐先试winmm.dll，把目录内的uif_config.json一并复制到游戏目录，然后编辑这个json，按GalTransl提取注入工具提供的配置填写`source_characters`和`target_characters`。   
+然后运行游戏，如果游戏可以正常运行，并且弹出了一个像这样的控制台：   
 ![img_terminal](./img/img_terminal.png)
-那多半就搞定了。如果不正常的话，删掉这个DLL，尝试换下一个。
-注：UniversalInjectorFramework也支持sjis隧道模式，可以设置`tunnel_decoder`为`True`然后在`mapping`里填入sjis_ext.bin包含文字。[详细配置文件设置见此](https://github.com/XD2333/GalTransl/tree/main/useful_tools/UniversalInjectorFramework)
+那多半就搞定了。如果不正常的话，删掉这个DLL，尝试换下一个。   
+注：UniversalInjectorFramework也支持sjis隧道模式，可以设置`tunnel_decoder`为`True`然后在`mapping`里填入sjis_ext.bin包含文字。   
+注：UniversalInjectorFramework的控制台窗口可以隐藏，[详细配置文件设置见此](https://github.com/XD2333/GalTransl/tree/main/useful_tools/UniversalInjectorFramework)   
 
 </details>
 
@@ -341,10 +336,6 @@ $str20	$str20	player's codename, boy
         "proofread_zh": "领了缺货的咖啡豆倒是没问题，\r\n可是走在回去的路上，汗水就冒了出来。",
         "trans_by": "NewBing",
         "proofread_by": "NewBing",
-        "trans_conf": 0.94,
-        "doub_content": [
-            "汗流浃背"
-        ]
     },
 ```
 解释一下每个字段的含义:  
@@ -355,20 +346,17 @@ $str20	$str20	player's codename, boy
 `post_jp`  处理后日文。一般来讲，post_jp = pre_jp 去除对话框 + 译前字典替换。你会代码的话也可以在此处加入自己的处理   
 `pre_zh`  原始中文   
 `proofread_zh`  校对的中文   
-没有post_zh，post_zh在json_cn里。   
-
-* 扩展参数：   
+（没有post_zh，post_zh在结果文件夹里。）   
 `trans_by`  翻译引擎/翻译者   
-`proofread_by`  校对引擎/校对者   
-`trans_conf`  翻译置信度，仅NewBing、GPT4支持，第4句0.94代表NewBing对该句的准确性有94%的把握   
-`doub_content`  存疑片段，仅NewBing、GPT4支持，代表翻译引擎觉得翻译可能不准确的地方   
-`unknown_proper_noun`  未知专有名词，仅NewBing、GPT4支持，方便后期人工修正   
+`proofread_by`  校对引擎/校对者    
 `problem`  存储问题。见下方自动化找错。   
 `post_zh_preview`  用于预览json_cn，但**对它的修改并不会应用到json_cn**，要修改`pre_jp`/`proofread_zh`
 
 * 简单讲下如何用Emeditor修缓存：选中一个文件，先右键-Emeditor打开，然后把transl_cache内所有文件全选拖进去。   
 这时候标签可能会占很大位置，右键标签-自定义标签页，将"标签不合适时"改成"无"，这样标签就只会在一行了（需要使用Emeditor专业版）。   
-接着ctrl+f搜索，搜索你感兴趣的关键字（如problem、doub_content），勾选"搜索组群中所有文档"，即可快速在所有文件中搜索，或点提取快速预览所有的问题。   
+接着ctrl+f搜索，搜索你感兴趣的关键字（如problem、doub_content），勾选"搜索组群中所有文档"，即可快速在所有文件中搜索，或点提取快速预览所有的问题。
+
+* **VSCode**也是非常好的修缓存工具，只要使用VsCode打开缓存文件夹，然后全局搜索如problem，就可以快速定位所有问题   
 
 * 在确定需要修改的内容后，直接修改对应句子的`pre_zh`，或`proofread_zh`，然后**重新跑一遍Galtransl**，很快就会生成新的json_cn
   
@@ -385,37 +373,22 @@ GalTransl根据长期对翻译结果的观察建立了一套根据规则自动�
 找问题系统的开启是在各个项目的`config.yaml`里，默认配置是这样的
 
 ```yaml
-# 问题分析机制配置
+# 自动问题分析配置，在-前面加#号可以禁用
 problemAnalyze:
-  GPT35: # GPT35 / ChatGPT
-    - 词频过高
-    - 标点错漏
-    - 残留日文
-    - 丢失换行
-    - 多加换行
-    - 比日文长
-  arinashiDict:
-    # 格式为 aaa:<空格>bbb
-    aaa: bbb
-    ccc: ddd
+  problemList: # 要发现的问题清单
+    - 词频过高 # 重复大于20次
+    - 标点错漏 # 标点符号多加或漏加
+    - 残留日文 # 日文平假名片假名残留
+    - 丢失换行 # 缺少换行符，一般没事
+    - 多加换行 # 换行符比原句多，可能导致溢出屏幕
+    - 比日文长 # 比日文长1.3倍以上
+    - 字典使用 # 没有按GPT字典要求翻译
+    - 语言不通 # 疑似没有被翻译成目标语言，翻译为中文时检查是否包含非GBK字符
+    #- 引入英文 # 本来没有英文，译文引入了英文
+    #- 比日文长严格 # 严格查找，不能比日文长
 ```
 
-目前支持找以下问题，将问题名按示例放到对应的翻译引擎里来激活，删掉则禁用：
-* 词频过高：某个字或符号重复超过20次会触发，用于寻找可能的乱翻情况。
-* 标点错漏：寻找括号、引号、冒号等符号的多加或丢失。
-* 残留日文：翻译后仍有日文残留的情况。
-* 丢失换行：翻译后把原有换行符（\r\n）丢了
-* 多加换行：过度脑补，自己加了换行的情况。
-* 比日文长：通常来说中文的信息量是比日文大的。所以如果某一句翻译后明显比日文长的话，说明这句的翻译可能窜行了（上一句或下一句的翻译窜到了本句）。在problem中会以"比日文长x倍"的形式记录。
-* 字典使用：用于检查GPT是否正确使用了GPT字典。
-
-arinashi_dict是一个可以自定义规则的找问题字典，配置格式为
-```
-    # 格式为 aaa:<空格>bbb
-    aaa: bbb
-    ccc: ddd
-```
-设置后，程序会去寻找`在日文中有aaa，但译文中没有bbb`和`在日文中没有aaa，但在译文中有bbb`两种情况。一般用于检查某些专有名词有没有被正确的翻译。   
+目前支持找以上问题，有的项目被#号注释，可以取消来开启，或手动加上#号关闭对应问题的查找。
 
 找到问题后会存在翻译缓存里，见翻译缓存章节，使用Emeditor批量提取problem关键字就可以看到目前所有的问题了，并通过修改缓存的pre_jp来修正问题。
    
@@ -425,134 +398,7 @@ arinashi_dict是一个可以自定义规则的找问题字典，配置格式为
 
 ## 配置文件与翻译引擎设置
 
-<details>
-
-<summary>  
-本篇介绍各个翻译引擎API的调用配置。
-</summary>  
-       
-      
-* **基础配置**
-  直接读配置文件注释就好了。
-```yaml
----
-# 通用（杂项）设置
-common:
-  loggingLevel: info # 日志等级（未实现） [debug/info/warning/error]
-  workersPerProject: 1 # 同时翻译的文件数量，为 1 时等于单线程
-  # 通用设置
-  sourceLanguage: ja # 源语言。[zh-cn/zh-tw/en/ja/ko/ru/fr]
-  targetLanguage: zh-cn # 目标语言。[zh-cn/zh-tw/en/ja/ko/ru/fr]
-  skipRetry: false # 开启则解析结果出错时跳过循环重试，直接用"Fail Translation"占位。[True/False]
-  retranslFail: false # 重启时重翻所有"Fail Translation"的句子。[True/False]
-  retranslKey: "" # 重启时主动重翻在Problem或pre_jp中包含此关键字的句子，例如"残留日文"
-  gpt.numPerRequestTranslate: 9 # 单次翻译句子数量，不建议太大
-  gpt.streamOutputMode: true # 流式输出/打字机效果，开启方便观察过程，关闭方便观察结果（多线程下无效）[True/False]
-  # NewBing/GPT4
-  gpt.enableProofRead: false # (NewBing/GPT4)是否开启译后校润。[True/False]
-  gpt.numPerRequestProofRead: 7 # (NewBing/GPT4)单次校润句子数量，不建议修改
-  gpt.recordConfidence: false # (NewBing/GPT4)记录确信度、存疑句，GPT4官方API关掉可节约token。[True/False]
-  gpt.forceNewBingHs: false # (NewBing)强制NewBing翻译hs，导致速度变得很慢且可能更容易被ban号。（考虑废弃）[True/False]
-  # GPT3.5/GPT4
-  gpt.translStyle: auto # (GPT3.5/4 官方API)GPT参数预设，precise更精确normal更随机，auto自动切换。[auto/precise/normal]
-  gpt.degradeBackend: false # (GPT3.5/4 官方API)是否将 GPT4 的key用于 GPT3.5 的请求。[True/False]
-  gpt.restoreContextMode: true # (GPT3.5/4 官方API)重启时恢复上一轮的译文前文。[True/False]
-  gpt.fullContextMode: false # (GPT3.5/4 官方API)保留更多前文。开启提升效果，关闭节约数倍token消耗。[True/False]
-  gpt.lineBreaksImprovementMode: false # (GPT3.5)换行符改善模式，部分减少丢换行符情况，但可能导致循环重试。（考虑废弃）[True/False]
-# 代理设置
-proxy:
-  enableProxy: false # 是否启用代理。[True/False]
-  proxies:
-    - address: http://127.0.0.1:7890
-      # username: foo
-      # password: bar
-```
-
-* **字典配置**
-  直接读配置文件注释就好了。
-  
-```yaml
-# 字典
-dictionary:
-  defaultDictFolder: Dict # 通用字典文件夹，相对于程序目录，也可填入绝对路径
-  usePreDictInName: false # 将译前字典用在name字段，可用于改名[True/False]
-  usePostDictInName: false # 将译后字典用在name字段，可用于汉化name[True/False]
-  # 预处理字典，按字典顺序替换
-  preDict:
-    - 01H字典_矫正_译前.txt # 用于口齿不清的矫正
-    - 00通用字典_译前.txt
-    - (project_dir)项目字典_译前.txt # (project_dir)代表字典在项目文件夹
-  # GPT 字典
-  gpt.dict:
-    - GPT字典.txt
-    - (project_dir)项目GPT字典.txt
-  # 后处理字典，按字典顺序替换
-  postDict:
-    - 00通用字典_符号_译后.txt # 符号矫正
-    - 00通用字典_译后.txt
-    - (project_dir)项目字典_译后.txt
-```
-
-* **NewBing**   
-需要微软账号，使用Edge浏览器，还要梯子。然后下载[EditThisCookie扩展](https://chrome.google.com/webstore/detail/editthiscookie/fngmhnnpilhplaeedifhccceomclgfbg)   
-访问https://www.bing.com/ ，登录后点EditThisCookie图标，点"导出Cookies"，   
-然后在示例项目的文件夹里新建一个`newbing_cookies`文件夹，然后在里面新建一个txt，名称随意，把点击导出Cookies得到的内容粘贴进去保存即可。   
-
-在配置文件中修改以下配置：   
-
-```yaml
-  bingGPT4:
-    cookiePath:
-      - newbing_cookies/cookie1.txt # 你的 cookies 文件1
-      - newbing_cookies/cookie2.json # 你的 cookies 文件2，后缀不影响程序读取
-```
-cookiePath下可以将多个文件按例子往下写，当一个账号到达上限后，会切到下一个账号。
-
-> 开启校润模式：   
-配置`  gpt.enableProofRead: true`，翻译完一个json后会开始对这个json自动化再润色   
-
-> 针对newbing拒绝翻译的情况，一个推荐的技巧是先设置`gpt.numPerRequestTranslate`为9或12，翻译一遍后，设置`retranslFail`为True，设置`gpt.numPerRequestTranslate`为3，再跑一遍，剩下的就是newbing死活都不会翻译的了，换引擎吧。
-> 另外，如果脚本有将hs分开，可以单独为hs建一个项目文件夹翻，翻完合并json_jp和transl_cache。
-
-* **GPT-3.5**   
-官方API调用方式见上手教程   
-   
-（2023.12 模拟网页操作目前不可用）   
-~~使用模拟网页操作模式时~~，登录网页版账号后访问https://chat.openai.com/api/auth/session
-
-拷贝其中"accessToken":后面双引号内的一大串内容，复制到配置里，然后调用时选择Chatgpt-gpt35引擎即可调用
-```yaml
-  ChatGPT: # ChatGPT / GPT3.5(4) 非官方 API，模拟网页操作
-    access_tokens:
-      - access_token: xxx # 此处粘贴accessToken
-```
-
-* **GPT-4**   
-官方API调用方式见上手教程，api key填入`  GPT4: # GPT4 官方 API`中即可   
-   
-（2023.12 模拟网页操作目前不可用）   
-~~使用模拟网页操作模式时~~，登录网页版账号后访问https://chat.openai.com/api/auth/session
-
-拷贝其中"accessToken":后面双引号内的一大串内容，复制到配置里，然后调用时选择Chatgpt-gpt4引擎即可调用
-```yaml
-  ChatGPT: # ChatGPT / GPT3.5(4) 非官方 API，模拟网页操作
-    access_tokens:
-      - access_token: xxx # 此处粘贴accessToken
-```
-
-> 开启校润模式：   
-配置`  gpt.enableProofRead: true`，翻译完一个json后会开始对这个json自动化再润色   
-
-* **Sakura**  
-按教程部署llama.cpp一键包（[地址](https://github.com/SakuraLLM/Sakura-13B-Galgame/wiki/llama.cpp%E4%B8%80%E9%94%AE%E5%8C%85%E9%83%A8%E7%BD%B2%E6%95%99%E7%A8%8B)）   
-   
-然后修改配置文件来设置后端地址：  
-```yaml
-  Sakura:
-    endpoint: http://127.0.0.1:8080 # 修改为server的地址
-```
-
-</details>
+2025.9：详细设置项可以直接阅读配置文件注释，目前已经比较详细，此处不再重复
 
 
 

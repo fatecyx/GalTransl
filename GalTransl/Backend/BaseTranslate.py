@@ -185,8 +185,6 @@ class BaseTranslate:
                 {"role": "user", "content": prompt},
             ]
 
-        if "qwen3" in token.model_name:
-            messages[-1]["content"] = "/no_think" + messages[-1]["content"]
         if "gemini" in token.model_name:
             temperature = NOT_GIVEN
 
@@ -243,7 +241,7 @@ class BaseTranslate:
             except Exception as e:
                 api_try_count += 1
                 # gemini no_candidates
-                if "no_candidates" in str(e) and api_try_count > 1:
+                if "candidates" in str(e) and api_try_count > 1:
                     return "", token
                 if self.apiErrorWait >= 0:
                     sleep_time = self.apiErrorWait + random.random()
@@ -265,11 +263,11 @@ class BaseTranslate:
                     if file_name != "" and file_name[:1] != "[":
                         file_name = f"[{file_name}]"
                     try:
-                        LOGGER.error(
+                        LOGGER.warning(
                             f"[API Error]{token_info}{file_name} {response.model_extra['error']} sleeping {sleep_time}s"
                         )
                     except:
-                        LOGGER.error(
+                        LOGGER.warning(
                             f"[API Error]{token_info}{file_name} {e} sleeping {sleep_time}s"
                         )
 

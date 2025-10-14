@@ -8,6 +8,7 @@ from typing import Tuple, List
 from collections import Counter
 from re import compile
 import requests
+import re
 
 PATTERN_CODE_BLOCK = compile(r"```([\w]*)\n([\s\S]*?)\n```")
 whitespace = " \t\n\r\v\f"
@@ -21,6 +22,31 @@ punctuation = r"""!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"""
 punctuation_zh = "。？！…（）；：《》「」『』【】"
 printable = digits + ascii_letters + punctuation + whitespace
 
+
+def extract_control_substrings(text: str) -> list[str]:
+    """
+    提取文本中所有以英文标点符号开头，且仅包含英文字母、数字和标点符号的子串。
+
+    Args:
+        text: 输入的文本字符串。
+
+    Returns:
+        一个包含所有匹配子串的列表。
+    """
+    # 定义允许的字符集：英文字母、数字和标点符号
+    # string.punctuation 包含 !"#$%&'()*+,-./:;<=>?@[]^_`{|}~
+    # string.ascii_letters 包含 a-z 和 A-Z
+    # string.digits 包含 0-9
+    allowed_chars = ascii_letters + digits + punctuation
+    first_punctuation = r"""!#$%&()*+-./:;<=>?@[\]^_`{|}~"""
+    # 构建正则表达式：
+    # 1. [{re.escape(string.punctuation)}] - 匹配一个英文标点符号作为开头
+    # 2. [{re.escape(allowed_chars)}]* - 匹配零个或多个由允许字符组成的后续部分
+    # re.escape() 用于转义字符集中的特殊正则字符（如 `[` `]` `^` `-`）
+    pattern = f"[{re.escape(first_punctuation)}][{re.escape(allowed_chars)}]*"
+    
+    # 使用 re.findall 查找所有匹配的子串
+    return re.findall(pattern, text)
 
 def get_most_common_char(input_text: str) -> Tuple[str, int]:
     """
@@ -61,6 +87,7 @@ def contains_japanese(text: str) -> bool:
     katakana_range = (0x30A0, 0x30FF)
     katakana_range2 = (0xFF66, 0xFF9F)
 
+    jp_chars = set()
     # 检查字符串中的每个字符
     for char in text:
 
@@ -86,8 +113,8 @@ def contains_japanese(text: str) -> bool:
             or katakana_range[0] <= code_point <= katakana_range[1]
             or katakana_range2[0] <= code_point <= katakana_range2[1]
         ):
-            return True
-    return False
+            jp_chars.add(char)
+    return "".join(jp_chars)
 
 
 def contains_korean(text: str) -> bool:
@@ -179,8 +206,23 @@ def is_all_chinese(text: str) -> bool:
     # 如果循环正常结束，说明所有字符都是中文字符
     return True
 
+def is_all_gbk(s):
+    if s == "":
+        return ""
+    
+    non_gbk_chars = set()
+    for char in s:
+        try:
+            char.encode('gbk')
+        except UnicodeEncodeError:
+            non_gbk_chars.add(char)
+    
+    return str("".join(non_gbk_chars))
 
-def contains_english(text: str) -> bool:
+
+
+
+def contains_english(text: str) -> str:
     """
     此函数接受一个字符串作为输入，检查其中是否包含英文字符。
 
@@ -196,6 +238,7 @@ def contains_english(text: str) -> bool:
     english_range3 = (0xFF21, 0xFF3A)
     english_range4 = (0xFF41, 0xFF5A)
 
+    eng_chars = ""
     # 检查字符串中的每个字符
     for char in text:
         # 获取字符的 Unicode 码点
@@ -207,8 +250,8 @@ def contains_english(text: str) -> bool:
             or english_range3[0] <= code_point <= english_range3[1]
             or english_range4[0] <= code_point <= english_range4[1]
         ):
-            return True
-    return False
+            eng_chars += char
+    return eng_chars
 
 
 def extract_code_blocks(content: str) -> Tuple[List[str], List[str]]:

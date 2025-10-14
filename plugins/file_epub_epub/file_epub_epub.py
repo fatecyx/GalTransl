@@ -4,6 +4,10 @@ import shutil
 import zipfile
 from GalTransl import LOGGER
 from GalTransl.GTPlugin import GFilePlugin
+import sys
+
+lib_path = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(lib_path)
 
 try:
     import ebooklib
