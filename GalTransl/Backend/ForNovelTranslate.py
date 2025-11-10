@@ -350,7 +350,7 @@ class ForNovelTranslate(BaseTranslate):
         num_count = 0
         current_tran = translist_unhit[0].prev_tran
         while current_tran != None:
-            if current_tran.pre_zh == "":
+            if current_tran.pre_zh == "" or "(Failed)" in current_tran.pre_zh:
                 current_tran = current_tran.prev_tran
                 continue
             tmp_obj = f"{current_tran.pre_zh}\t{current_tran.index}"
