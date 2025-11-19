@@ -38,6 +38,7 @@ class BaseTranslate:
         Returns:
             None
         """
+        self.trans_prompt = ''
         self.pj_config = config
         self.eng_type = eng_type
         self.last_file_name = ""
