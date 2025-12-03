@@ -13,26 +13,22 @@ post_jp	「 [and] !"	1^"	「
 post_jp	」 [and] !"	1^"	」
 post_jp	『 [and] !"	1^"	『
 post_jp	』 [and] !"	1^"	』
-pre_jp	♪	#	♪
-pre_jp	♪	*	♪
 pre_jp	《	『	《
 pre_jp	》	』	》
 pre_jp	『	《	『
 pre_jp	』	》	』
-pre_jp	「	“	「
-pre_jp	」	”	」
-pre_jp	『	‘	『
-pre_jp	』	’	』
-pre_jp	『	“	『
-pre_jp	』	”	』
+post_jp	「	“	「
+post_jp	」	”	」
+post_jp	『	‘	『
+post_jp	』	’	』
+post_jp	『	“	『
+post_jp	』	”	』
 pre_jp	“	『	“
 pre_jp	”	』	”
 pre_jp	“	《	“
 pre_jp	”	》	”
 pre_jp	“	‘	“
 pre_jp	”	’	”
-post_jp	「	“	「
-post_jp	」	”	」
 pre_jp	!“	“		
 pre_jp	!”	”		
 pre_jp	!。）	。）	）
