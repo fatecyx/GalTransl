@@ -121,7 +121,6 @@ class ForNovelTranslate(BaseTranslate):
             resp = None
             resp, token = await self.ask_chatbot(
                 messages=messages,
-                temperature=self.temperature,
                 file_name=f"{filename}:{idx_tip}",
                 base_try_count=retry_count
             )

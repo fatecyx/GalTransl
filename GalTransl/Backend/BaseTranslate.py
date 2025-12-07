@@ -166,7 +166,7 @@ class BaseTranslate:
         prompt="",
         system="",
         messages=[],
-        temperature=0.6,
+        temperature=NOT_GIVEN,
         frequency_penalty=NOT_GIVEN,
         top_p=NOT_GIVEN,
         stream=NOT_GIVEN,
