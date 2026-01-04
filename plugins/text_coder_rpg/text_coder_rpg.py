@@ -143,7 +143,7 @@ class text_coder_rpg(GTextPlugin):
 
         return text_head+"".join(lst_head), "".join(lst_content), "".join(lst_tail)+text_tail
 
-    color_pre_pattern = re.compile(r'\\c\[(\d+)\]', re.IGNORECASE)
+    color_pre_pattern = re.compile(r'\\C\[(\d+)\]', re.IGNORECASE)
     color_post_pattern = re.compile(r'\{color(\d+):\s?(.*?)(?<!\\)\}', re.DOTALL|re.IGNORECASE)
     def preprocess_color_tags(self, text):
         # 正则匹配颜色标记（不区分大小写）
@@ -152,9 +152,9 @@ class text_coder_rpg(GTextPlugin):
         if matches and all(m.start() == 0 or m.end() == len(text) for m in matches):
             return text
 
-        end_tag = re.findall(r"\\c\[0+\]", text)
+        end_tag = re.findall(r"\\C\[0+\]", text)
         if not end_tag:
-            end_tag = "\\c[0]"
+            end_tag = "\\C[0]"
         else:
             end_tag = min(end_tag, key=len)
         end_num = end_tag[3:-1]
@@ -223,15 +223,15 @@ class text_coder_rpg(GTextPlugin):
             if original_colors != translated_colors:
                 missing.append("颜色标签不匹配")
 
-        end_tag = re.findall(r"\\c\[0+\]", pre_jp)
+        end_tag = re.findall(r"\\C\[0+\]", pre_jp)
         if not end_tag:
-            end_tag = "\\c[0]"
+            end_tag = "\\C[0]"
         else:
             end_tag = min(end_tag, key=len)
         lst_split = self.color_post_pattern.split(processed_text)
         final_parts = [lst_split[0]]
         for i in range(1, len(lst_split), 3):
-            final_parts.append(f"\\c[{lst_split[i]}]")
+            final_parts.append(f"\\C[{lst_split[i]}]")
             final_parts.append(lst_split[i+1])
             if lst_split[i+2] or i+2 == len(lst_split)-1:
                 final_parts.append(f"{end_tag}{lst_split[i+2]}")
