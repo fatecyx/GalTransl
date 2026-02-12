@@ -57,7 +57,7 @@ class text_common_punctuation_fixer(GTextPlugin):
     }
 
     RE_YINHAO_STRING = re.compile(r"([\"'])([^\"'｢「」｣『』“”（()）【】]*?)\1")
-    RE_LINEBREAK = re.compile(r'\n[ 　]*')
+    RE_LINEBREAK = re.compile(r'\n＞?[ 　]*')
     def __init__(self) -> None:
         super().__init__()
 
@@ -207,8 +207,8 @@ if __name__ == '__main__':
     coder.gtp_init({'Core': {}, 'Settings': {}}, {})
     lines = {
     #    "その艶やかな姿に\\N[3]の獣心がそそられた。\n\\N[3]は少女の動きに合わせて腰を突き上げはじめる。",
-        "メメルを…メメルを見つけ出さなきゃ。\r\nそれまでは絶対…神殿には戻らない…っ。":
-            "必须找到梅梅尔…\n在那之前绝对…不回神殿…",
+        "メメルを…メメルを見つけ出さなきゃ。\n  それまでは絶対…\n  神殿には戻らない…っ。":
+            "必须找到梅梅尔…\n在那之前绝对…\n不回神殿…",
     }
     for post_jp, post_zh in lines.items():
         s = CSentense(post_jp)
