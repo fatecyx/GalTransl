@@ -233,10 +233,27 @@ function AppInner({ openProjects, onOpenProject, onCloseProject, onCloseOtherPro
     };
   }, []);
 
+  // Timeout fallback: if animationend never fires (e.g. prefers-reduced-motion
+  // disables animations), force the transition to complete so the page doesn't
+  // get stuck on the old route.
+  const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (location.pathname !== displayLocation.pathname) {
       setTransitionStage('fadeOut');
+      // The fadeOut animation is 150 ms; give a generous margin before forcing.
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = setTimeout(() => {
+        setDisplayLocation(location);
+        setTransitionStage('fadeIn');
+      }, 200);
     }
+    return () => {
+      if (transitionTimerRef.current) {
+        clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+    };
   }, [location, displayLocation]);
 
   useLayoutEffect(() => {
@@ -245,6 +262,10 @@ function AppInner({ openProjects, onOpenProject, onCloseProject, onCloseOtherPro
 
   const handleTransitionEnd = () => {
     if (transitionStage === 'fadeOut') {
+      if (transitionTimerRef.current) {
+        clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
       setDisplayLocation(location);
       setTransitionStage('fadeIn');
     }
