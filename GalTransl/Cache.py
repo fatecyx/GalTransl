@@ -7,6 +7,7 @@ from GalTransl import LOGGER
 from typing import List
 import orjson
 import os,shutil
+import asyncio
 from GalTransl.i18n import get_text,GT_LANG
 import aiofiles
 
@@ -39,10 +40,59 @@ def _cache_has(cache_obj: dict, key: str) -> bool:
 
 
 _CACHE_APPEND_SUFFIX = ".append.jsonl"
+_CACHE_APPEND_WRITE_RETRY_TIMES = 6
+_CACHE_APPEND_WRITE_RETRY_DELAY = 0.08
 
 
 def _append_cache_file_path(cache_file_path: str) -> str:
     return cache_file_path + _CACHE_APPEND_SUFFIX
+
+
+def _is_windows_file_lock_error(err: BaseException) -> bool:
+    winerror = getattr(err, "winerror", None)
+    if winerror in (32, 33):
+        return True
+    return isinstance(err, PermissionError)
+
+
+def _record_runtime_cache_error(project_dir: str, *, message: str, filename: str = "", level: str = "warning") -> None:
+    if not project_dir:
+        return
+    try:
+        from GalTransl.server import record_runtime_error
+
+        record_runtime_error(
+            project_dir,
+            kind="cache",
+            message=message,
+            filename=filename,
+            level=level,
+        )
+    except Exception:
+        return
+
+
+async def _write_append_entries_with_retry(append_file_path: str, append_entries: list[dict]) -> None:
+    if not append_entries:
+        return
+
+    last_error = None
+    for attempt in range(_CACHE_APPEND_WRITE_RETRY_TIMES):
+        try:
+            async with aiofiles.open(append_file_path, mode="ab") as f:
+                for entry in append_entries:
+                    await f.write(orjson.dumps(entry))
+                    await f.write(b"\n")
+            return
+        except Exception as e:
+            last_error = e
+            if not _is_windows_file_lock_error(e):
+                raise
+            if attempt >= _CACHE_APPEND_WRITE_RETRY_TIMES - 1:
+                break
+            await asyncio.sleep(_CACHE_APPEND_WRITE_RETRY_DELAY * (attempt + 1))
+
+    raise last_error
 
 
 def _build_cache_key_for_tran(tran) -> str:
@@ -184,7 +234,7 @@ async def compact_cache_append_logs(cache_dir: str) -> int:
     return compacted_count
 
 
-async def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_save=False):
+async def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_save=False, project_dir: str = ""):
     """
     此函数将翻译缓存保存到 JSON 文件中。
     使用原子写入机制，避免程序异常关闭时写入不完整的问题。
@@ -193,6 +243,7 @@ async def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_
         trans_list (CTransList): 要保存的翻译列表。
         cache_file_path (str): 要保存到的 JSON 文件的路径。
         post_save (bool, optional): 是否是翻译结束后的存储。默认为 False。
+        project_dir (str, optional): 运行时项目目录，用于上报工作台最近错误卡片。默认为空。
     """
     if not cache_file_path.endswith(".json"):
         cache_file_path += ".json"
@@ -224,14 +275,35 @@ async def save_transCache_to_json(trans_list: CTransList, cache_file_path, post_
                 await f.write(json_data)
             shutil.move(temp_file_path, cache_file_path)
             if os.path.exists(append_file_path):
-                os.remove(append_file_path)
+                try:
+                    os.remove(append_file_path)
+                except Exception as e:
+                    if _is_windows_file_lock_error(e):
+                        warn_msg = f"[cache]清理append缓存文件失败(被占用，稍后自动恢复)：{append_file_path}"
+                        LOGGER.warning(warn_msg)
+                        _record_runtime_cache_error(
+                            project_dir,
+                            message=warn_msg,
+                            filename=os.path.basename(append_file_path),
+                        )
+                    else:
+                        raise
         else:
             # 增量写入append日志，避免频繁整文件重写
             if append_entries:
-                async with aiofiles.open(append_file_path, mode="ab") as f:
-                    for entry in append_entries:
-                        await f.write(orjson.dumps(entry))
-                        await f.write(b"\n")
+                try:
+                    await _write_append_entries_with_retry(append_file_path, append_entries)
+                except Exception as e:
+                    if _is_windows_file_lock_error(e):
+                        warn_msg = f"[cache]增量缓存写入失败(文件被占用，已跳过本次写入)：{append_file_path}"
+                        LOGGER.warning(warn_msg)
+                        _record_runtime_cache_error(
+                            project_dir,
+                            message=warn_msg,
+                            filename=os.path.basename(append_file_path),
+                        )
+                        return
+                    raise
     except Exception as e:
         LOGGER.error(f"[cache]保存缓存失败：{str(e)}")
         

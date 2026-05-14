@@ -340,7 +340,15 @@ class CSakuraTranslate(BaseTranslate):
             self.pj_config.bar(num)
             transl_step_count += 1
             if transl_step_count >= self.save_steps:
-                await save_transCache_to_json(trans_result, cache_file_path)
+                await save_transCache_to_json(
+                    trans_result,
+                    cache_file_path,
+                    project_dir=getattr(
+                        self.pj_config,
+                        "runtime_project_dir",
+                        self.pj_config.getProjectDir(),
+                    ),
+                )
                 transl_step_count = 0
 
             trans_result_list += trans_result

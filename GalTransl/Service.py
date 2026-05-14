@@ -253,11 +253,33 @@ async def run_job_async(
         current_state.error = get_text("goodbye", GT_LANG)
     except RuntimeError as ex:
         _append_error_log(spec, ex, phase="run_job")
+        try:
+            from GalTransl.server import record_runtime_error
+
+            record_runtime_error(
+                spec.project_dir,
+                kind="run_job",
+                message=str(ex),
+                level="error",
+            )
+        except Exception:
+            pass
         current_state.status = "failed"
         current_state.error = get_text("program_error", GT_LANG, ex)
         LOGGER.error(current_state.error)
     except BaseException as ex:
         _append_error_log(spec, ex, phase="run_job")
+        try:
+            from GalTransl.server import record_runtime_error
+
+            record_runtime_error(
+                spec.project_dir,
+                kind="run_job",
+                message=str(ex),
+                level="error",
+            )
+        except Exception:
+            pass
         current_state.status = "failed"
         current_state.error = get_text("error_unexpected", GT_LANG, str(ex))
         LOGGER.error(current_state.error, exc_info=True)

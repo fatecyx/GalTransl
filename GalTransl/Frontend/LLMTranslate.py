@@ -766,7 +766,12 @@ async def postprocess_results(
         if eng_type != "rebuildr":
             find_problems(trans_list, projectConfig, gpt_dic)
             # post_save=True → 写完整快照并删除对应 .append 日志（即合并 jsonl）
-            await save_transCache_to_json(trans_list, cache_file_path, post_save=True)
+            await save_transCache_to_json(
+                trans_list,
+                cache_file_path,
+                post_save=True,
+                project_dir=_runtime_project_dir(projectConfig),
+            )
 
     # 使用output_combiner合并结果，即使只有一个结果
     all_trans_list, all_json_list = DictionaryCombiner.combine(resultChunks)

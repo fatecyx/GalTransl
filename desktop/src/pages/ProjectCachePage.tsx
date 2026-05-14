@@ -1190,7 +1190,7 @@ export function ProjectCachePage({ ctx, active = true }: { ctx: ProjectPageConte
               className={`cache-sidebar-tab ${sidebarTab === 'files' ? 'cache-sidebar-tab--active' : ''}`}
               onClick={() => setSidebarTab('files')}
             >
-              文件
+              文件{dirtyFiles.size > 0 ? <span className="cache-sidebar-tab__badge">{dirtyFiles.size}</span> : ''}
             </button>
             <button
               type="button"
