@@ -70,6 +70,29 @@ export function BackendConfigEditor({ config, onChange, readOnly = false, proxy 
     onChange({ ...config, SakuraLLM: { ...sakuraConfig, [key]: value } });
   }, [config, sakuraConfig, onChange, readOnly]);
 
+  const sakuraEndpoints = (Array.isArray(sakuraConfig.endpoints)
+    ? sakuraConfig.endpoints
+    : [String(sakuraConfig.endpoints ?? sakuraConfig.endpoint ?? '')]) as string[];
+
+  const updateSakuraEndpoint = useCallback((index: number, val: string) => {
+    if (readOnly) return;
+    const next = [...sakuraEndpoints];
+    next[index] = val;
+    updateSakura('endpoints', next);
+  }, [sakuraEndpoints, updateSakura, readOnly]);
+
+  const addSakuraEndpoint = useCallback(() => {
+    if (readOnly) return;
+    const next = [...sakuraEndpoints, ''];
+    updateSakura('endpoints', next);
+  }, [sakuraEndpoints, updateSakura, readOnly]);
+
+  const removeSakuraEndpoint = useCallback((index: number) => {
+    if (readOnly) return;
+    const next = sakuraEndpoints.filter((_, i) => i !== index);
+    updateSakura('endpoints', next);
+  }, [sakuraEndpoints, updateSakura, readOnly]);
+
   // Tokens list operations
   const addToken = useCallback(() => {
     if (readOnly) return;
@@ -379,20 +402,59 @@ export function BackendConfigEditor({ config, onChange, readOnly = false, proxy 
       {hasSakura && (
         <>
           <h3 className="config-section-title" style={{ marginTop: hasOai ? '24px' : undefined }}>Sakura 本地模型</h3>
-          <label className="field">
-            <span>端点列表</span>
-            <textarea
-              disabled={readOnly}
-              rows={3}
-              value={Array.isArray(sakuraConfig.endpoints) ? (sakuraConfig.endpoints as string[]).join('\n') : String(sakuraConfig.endpoints ?? '')}
-              onChange={(e) => {
-                const lines = e.target.value.split('\n').filter(Boolean);
-                updateSakura('endpoints', lines);
-              }}
-            />
-            <span className="field__hint">每行一个端点地址</span>
-          </label>
-          <label className="field">
+          
+          <div className="token-list">
+            <div className="token-list__header">
+              <span className="token-list__title">端点列表</span>
+              {!readOnly && (
+                <button type="button" className="token-list__add-btn" onClick={addSakuraEndpoint}>
+                  + 添加端点
+                </button>
+              )}
+            </div>
+
+            {sakuraEndpoints.length === 0 && (
+              <div className="token-list__empty">
+                暂无端点，请点击「添加端点」按钮添加。
+              </div>
+            )}
+
+            {sakuraEndpoints.map((ep, idx) => (
+              <div key={idx} className="token-entry" style={{ marginBottom: '12px' }}>
+                <div className="token-entry__header">
+                  <span className="token-entry__index">端点 #{idx + 1}</span>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="token-entry__remove-btn"
+                      onClick={() => removeSakuraEndpoint(idx)}
+                      title="删除此端点"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <label className="field field--inline">
+                  <span>端点地址</span>
+                  <input
+                    type="text"
+                    disabled={readOnly}
+                    value={ep}
+                    onChange={(e) => updateSakuraEndpoint(idx, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addSakuraEndpoint();
+                      }
+                    }}
+                    placeholder="http://127.0.0.1:8501"
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+
+          <label className="field" style={{ marginTop: '12px' }}>
             <span>自定义模型名称</span>
             <input
               disabled={readOnly}

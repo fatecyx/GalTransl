@@ -9,7 +9,7 @@ from GalTransl.Cache import save_transCache_to_json
 from GalTransl.Dictionary import CGptDict
 from GalTransl.Utils import find_most_repeated_substring
 from GalTransl.Backend.BaseTranslate import BaseTranslate
-from GalTransl.COpenAI import COpenAIToken
+from GalTransl.COpenAI import COpenAIToken, normalize_sakura_endpoints
 from GalTransl.Backend.Prompts import (
     Sakura_TRANS_PROMPT,
     Sakura_SYSTEM_PROMPT,
@@ -78,39 +78,50 @@ class CSakuraTranslate(BaseTranslate):
         import httpx
         import re
 
-        self.tokenStrategy =  "random"
         backendSpecific = config.projectConfig["backendSpecific"]
         section_name = "SakuraLLM" if "SakuraLLM" in backendSpecific else "Sakura"
-        model_name = config.getBackendConfigSection(section_name).get(
-            "rewriteModelName","sakura"
+        backend_cfg = config.getBackendConfigSection(section_name)
+
+        self.tokenStrategy = backend_cfg.get("tokenStrategy", "random")
+        model_name = backend_cfg.get(
+            "rewriteModelName", "sakura"
         )
         self.apiErrorWait = 0
         self.model_name = model_name if model_name else "sakura"
 
-        endpoint = self.endpoint
-        endpoint = endpoint[:-1] if endpoint.endswith("/") else endpoint
-        base_path = "/v1" if not re.search(r"/v\d+$", endpoint) else ""
-        self.stream = True
-        if "sakura-share" in endpoint:
-            self.stream = False
-
-        if self.proxyProvider:
-            from GalTransl.ConfigHelper import build_httpx_proxy_kwargs
-            self.proxy = self.proxyProvider.getProxy()
-            proxy_kwargs = build_httpx_proxy_kwargs(self.proxy.addr if self.proxy else None)
-            client = httpx.AsyncClient(trust_env=False, **proxy_kwargs)
-        else:
-            client = httpx.AsyncClient(trust_env=False)
-
-        chatbot = AsyncOpenAI(
-            api_key="sk-sakura",
-            base_url=f"{endpoint}{base_path}",
-            max_retries=0,
-            http_client=client,
+        cleaned_endpoints = normalize_sakura_endpoints(
+            backend_cfg,
+            self.endpoint if hasattr(self, "endpoint") else "",
         )
-        token=COpenAIToken("sk-sakura",f"{endpoint}{base_path}",model_name,True)
-        self.client_list=[]
-        self.client_list.append((chatbot,token))
+
+        self.client_list = []
+        for endpoint in cleaned_endpoints:
+            endpoint_url = endpoint[:-1] if endpoint.endswith("/") else endpoint
+            base_path = "/v1" if not re.search(r"/v\d+$", endpoint_url) else ""
+            
+            ep_stream = True
+            if "sakura-share" in endpoint_url:
+                ep_stream = False
+
+            if self.proxyProvider:
+                from GalTransl.ConfigHelper import build_httpx_proxy_kwargs
+                self.proxy = self.proxyProvider.getProxy()
+                proxy_kwargs = build_httpx_proxy_kwargs(self.proxy.addr if self.proxy else None)
+                client = httpx.AsyncClient(trust_env=False, **proxy_kwargs)
+            else:
+                client = httpx.AsyncClient(trust_env=False)
+
+            chatbot = AsyncOpenAI(
+                api_key="sk-sakura",
+                base_url=f"{endpoint_url}{base_path}",
+                max_retries=0,
+                http_client=client,
+            )
+            token = COpenAIToken("sk-sakura", f"{endpoint_url}{base_path}", self.model_name, ep_stream)
+            self.client_list.append((chatbot, token))
+
+        if self.client_list:
+            self.stream = self.client_list[0][1].stream
 
     def clean_up(self):
         self.pj_config.endpointQueue.put_nowait(self.endpoint)
@@ -170,7 +181,6 @@ class CSakuraTranslate(BaseTranslate):
                 frequency_penalty=self.frequency_penalty,
                 top_p=self.top_p,
                 max_tokens=len(input_str) * 2,
-                stream=self.stream,
             )
 
             result_list = resp.strip("\n").split("\n")

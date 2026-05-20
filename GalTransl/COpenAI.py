@@ -15,6 +15,31 @@ import httpx
 from GalTransl.TerminalOutput import should_print_translation_logs, terminal_progress
 
 
+def normalize_sakura_endpoints(section: dict, fallback_endpoint: str = "") -> list[str]:
+    raw_endpoints = section.get("endpoints", section.get("endpoint", []))
+    if isinstance(raw_endpoints, str):
+        raw_endpoints = [raw_endpoints]
+    elif not isinstance(raw_endpoints, list):
+        raw_endpoints = []
+
+    endpoints = []
+    for endpoint in raw_endpoints:
+        if not isinstance(endpoint, str):
+            continue
+        endpoint = endpoint.strip()
+        if endpoint and endpoint not in endpoints:
+            endpoints.append(endpoint)
+
+    fallback_endpoint = fallback_endpoint.strip() if isinstance(fallback_endpoint, str) else ""
+    if not endpoints and fallback_endpoint:
+        endpoints.append(fallback_endpoint)
+
+    if not endpoints:
+        endpoints.append("http://127.0.0.1:8501")
+
+    return endpoints
+
+
 class COpenAIToken:
     """
     OpenAI 令牌
@@ -360,10 +385,7 @@ async def init_sakura_endpoint_queue(projectConfig: CProjectConfig) -> Optional[
     workersPerProject = projectConfig.getKey("workersPerProject") or 1
     sakura_endpoint_queue = asyncio.Queue()
     section_name = "SakuraLLM"
-    if "endpoints" in projectConfig.getBackendConfigSection(section_name):
-        endpoints = projectConfig.getBackendConfigSection(section_name)["endpoints"]
-    else:
-        endpoints = [projectConfig.getBackendConfigSection(section_name)["endpoint"]]
+    endpoints = normalize_sakura_endpoints(projectConfig.getBackendConfigSection(section_name))
     repeated = (workersPerProject + len(endpoints) - 1) // len(endpoints)
     for _ in range(repeated):
         for endpoint in endpoints:
