@@ -29,7 +29,7 @@ export function BackendSettingsSection({
 }: BackendSettingsSectionProps) {
   const resolvedProfile = selectedProfile === '__default__' ? defaultProfileName : selectedProfile;
   const commonConfig = (config?.common as Record<string, unknown>) || {};
-  const autoAdjustWorkers = commonConfig.autoAdjustWorkers !== false;
+  const autoAdjustWorkers = commonConfig.autoAdjustWorkers === true;
 
   return (
     <Panel title="翻译后端" description="OpenAI兼容接口、Sakura本地模型和代理配置。">

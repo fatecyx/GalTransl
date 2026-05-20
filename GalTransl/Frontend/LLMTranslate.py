@@ -528,7 +528,7 @@ async def doLLMTranslate(
             update_progress_title(bar, semaphore, workersPerProject, projectConfig)
         )
 
-        enable_auto_workers = bool(projectConfig.getKey("autoAdjustWorkers", True))
+        enable_auto_workers = bool(projectConfig.getKey("autoAdjustWorkers", False))
         if enable_auto_workers and workersPerProject > 1:
             auto_tune_task = asyncio.create_task(
                 auto_tune_workers(projectConfig, adaptive_state, set_effective_workers)
