@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { invoke } from '@tauri-apps/api/core';
 import { Button } from './Button';
 import { Panel } from './Panel';
 import { EmptyState, ErrorState, InlineFeedback, LoadingState } from './page-state';
@@ -41,6 +43,12 @@ type DictionaryManagerProps = {
   onSaveFile: (fileKey: string, content: string) => Promise<void>;
   onDeleteFile: (fileKey: string) => Promise<void>;
   onGenerateGptDict?: () => Promise<void>;
+};
+
+type DictContextMenuState = {
+  x: number;
+  y: number;
+  file: string;
 };
 
 const PROJECT_DIR_MARKER = '(project_dir)';
@@ -225,6 +233,8 @@ export function DictionaryManager(props: DictionaryManagerProps) {
   const [newFilename, setNewFilename] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<DictContextMenuState | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
   const activeFiles = useMemo(() => getFilesByTab(data, activeTab), [data, activeTab]);
 
@@ -281,6 +291,43 @@ export function DictionaryManager(props: DictionaryManagerProps) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, remainMs));
       }
       setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const menuEl = contextMenuRef.current;
+      if (menuEl && menuEl.contains(event.target as Node)) return;
+      setContextMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setContextMenu(null);
+    };
+
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [contextMenu]);
+
+  const handleRevealFile = async (file: string) => {
+    const filePath = data?.dict_contents?.[file]?.path;
+    if (!filePath) {
+      setLocalError(`无法定位字典文件「${stripProjectDirMarker(file)}」`);
+      setInfo(null);
+      return;
+    }
+
+    setLocalError(null);
+    setInfo(null);
+    try {
+      await invoke('reveal_file', { path: filePath });
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : `在文件管理器中浏览失败: ${String(e)}`);
     }
   };
 
@@ -390,7 +437,7 @@ export function DictionaryManager(props: DictionaryManagerProps) {
     setInfo(null);
   };
 
-  const handleTextEditorKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleTextEditorKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== 'Tab') return;
     e.preventDefault();
     const target = e.currentTarget;
@@ -568,6 +615,10 @@ export function DictionaryManager(props: DictionaryManagerProps) {
                     className={`dict-file-item ${isActive ? 'dict-file-item--active' : ''}`}
                     type="button"
                     onClick={() => handleSelectFile(file)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, file });
+                    }}
                   >
                     <span className="dict-file-item__name">{stripProjectDirMarker(file)}</span>
                     {content && <span className="dict-file-item__count">{content.count}条</span>}
@@ -672,6 +723,28 @@ export function DictionaryManager(props: DictionaryManagerProps) {
           </div>
         </div>
       </div>
+      {contextMenu && createPortal(
+        <div
+          ref={contextMenuRef}
+          className="cache-context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="cache-context-menu__item"
+            onClick={() => {
+              const file = contextMenu.file;
+              setContextMenu(null);
+              void handleRevealFile(file);
+            }}
+          >
+            <span className="cache-context-menu__icon" aria-hidden="true">📂</span>
+            <span className="cache-context-menu__label">在文件管理器中浏览</span>
+          </button>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

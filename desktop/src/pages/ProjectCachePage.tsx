@@ -355,6 +355,20 @@ export function ProjectCachePage({ ctx, active = true }: { ctx: ProjectPageConte
   const [localError, setLocalError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
+  const handleRevealCacheFiles = useCallback(async (filenames: string[]) => {
+    if (!cacheDir || filenames.length === 0) return;
+    const baseDir = cacheDir.replace(/[\\/]+$/, '');
+    setLocalError(null);
+
+    try {
+      for (const filename of filenames) {
+        await invoke('reveal_file', { path: `${baseDir}\\${filename}` });
+      }
+    } catch (err) {
+      setLocalError(normalizeError(err, '在文件管理器中浏览失败'));
+    }
+  }, [cacheDir]);
+
   // Tab state
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('files');
 
@@ -1664,10 +1678,7 @@ export function ProjectCachePage({ ctx, active = true }: { ctx: ProjectPageConte
             onClick={() => {
               const filenames = contextMenu.filenames;
               setContextMenu(null);
-              for (const f of filenames) {
-                const fullPath = cacheDir ? `${cacheDir}/${f}` : f;
-                void invoke('reveal_file', { path: fullPath });
-              }
+              void handleRevealCacheFiles(filenames);
             }}
           >
             <span className="cache-context-menu__icon" aria-hidden="true">📂</span>
@@ -1701,4 +1712,3 @@ function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
-

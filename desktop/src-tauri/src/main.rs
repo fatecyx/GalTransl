@@ -1,6 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::Manager;
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -304,8 +303,24 @@ fn windows_shell_open(path: &str) -> Result<(), String> {
         ILFree(Some(pidl));
         CoUninitialize();
 
-        hr.map_err(|e| format!("打开 Explorer 失败: {}", e))?;
+        if let Err(e) = hr {
+            return Err(format!("打开 Explorer 失败: {}", e));
+        }
     }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn windows_explorer_select(path: &str) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    let win_path = path.replace('/', "\\");
+    std::process::Command::new("explorer")
+        .arg("/select,")
+        .arg(&win_path)
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| format!("定位文件失败: {}", e))?;
     Ok(())
 }
 
@@ -313,12 +328,15 @@ fn windows_shell_open(path: &str) -> Result<(), String> {
 fn open_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+
         // explorer 打开目录时默认会复用已经显示该路径的窗口（除非用户关闭了
         // “在不同窗口中打开文件夹”选项）。不要用 SHOpenFolderAndSelectItems，
         // 否则会在父目录中把该文件夹“选中”而不是进入它。
         let win_path = path.replace('/', "\\");
         std::process::Command::new("explorer")
             .arg(&win_path)
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| format!("打开文件夹失败: {}", e))?;
     }
@@ -343,7 +361,11 @@ fn open_folder(path: String) -> Result<(), String> {
 fn reveal_file(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        return windows_shell_open(&path);
+        if let Err(shell_error) = windows_shell_open(&path) {
+            windows_explorer_select(&path)
+                .map_err(|fallback_error| format!("{}；备用方式也失败: {}", shell_error, fallback_error))?;
+        }
+        return Ok(());
     }
     #[cfg(target_os = "macos")]
     {
