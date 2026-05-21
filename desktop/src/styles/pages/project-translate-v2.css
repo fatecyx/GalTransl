@@ -196,7 +196,7 @@
   100% { opacity: 1; transform: translateY(0); }
 }
 
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: no-preference) and (prefers-reduced-motion: reduce) {
   .ptv2-cockpit--arming,
   .ptv2-cockpit--arming .ptv2-cockpit__orb,
   .ptv2-cockpit--arming .ptv2-gauge__percent,
@@ -1099,7 +1099,7 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: no-preference) and (prefers-reduced-motion: reduce) {
   .ptv2-tab--active::after,
   .ptv2-tab--active .ptv2-tab__label,
   .ptv2-tabpanel__pane {
@@ -1343,7 +1343,7 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: no-preference) and (prefers-reduced-motion: reduce) {
   .ptv2-cockpit__orb,
   .ptv2-cockpit--live .ptv2-gauge__bar-fill,
   .ptv2-cockpit--live .ptv2-gauge__bar-shine,

@@ -68,32 +68,15 @@ export const FRESH_HIGHLIGHT_MS = 2200;
 
 // ── reduced-motion helper ──────────────────────────────
 
-const QUERY = '(prefers-reduced-motion: reduce)';
-
-/** Check if the user prefers reduced motion (sync, non-reactive) */
+/** The desktop app keeps its own animations independent of the OS setting. */
 export function prefersReducedMotion(): boolean {
-  return window.matchMedia(QUERY).matches;
+  return false;
 }
 
 /**
- * React hook — subscribes to the prefers-reduced-motion media query.
- * Returns `true` when the user wants minimal motion.
- *
- * Use this to conditionally skip particle bursts, ripples, etc.
- * CSS-side animations should use the @media (prefers-reduced-motion) block.
+ * React hook-shaped helper for motion code that should not follow the OS
+ * reduced-motion preference in the desktop app.
  */
 export function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = React.useState(prefersReducedMotion);
-
-  React.useEffect(() => {
-    const mql = window.matchMedia(QUERY);
-    const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
-    mql.addEventListener('change', handler);
-    return () => mql.removeEventListener('change', handler);
-  }, []);
-
-  return reduced;
+  return false;
 }
-
-// Re-export React for the hook's internal usage
-import React from 'react';

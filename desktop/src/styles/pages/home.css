@@ -758,7 +758,7 @@
 
 /* ── Reduced motion ── */
 
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: no-preference) and (prefers-reduced-motion: reduce) {
   .home-hero {
     opacity: 1;
     transform: none;
@@ -1434,7 +1434,7 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: no-preference) and (prefers-reduced-motion: reduce) {
   .home-job-row__status-pill,
   .home-job-row__stop-btn {
     transition: opacity var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);

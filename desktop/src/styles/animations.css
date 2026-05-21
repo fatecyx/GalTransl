@@ -32,7 +32,7 @@
   animation: pageFadeIn 200ms ease forwards;
 }
 
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: no-preference) and (prefers-reduced-motion: reduce) {
   .page-transition-fadeIn,
   .page-transition-fadeOut,
   .section-fade-in {
