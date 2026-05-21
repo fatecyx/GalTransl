@@ -41,6 +41,7 @@ from GalTransl.server_runtime import (
     _ConcurrentLimitError,
     _has_newer_release,
     _normalize_project_dir,
+    _normalize_retran_terms,
     _parse_runtime_job_started_at_ns,
     _safe_project_dir,
     _trim_preview,
