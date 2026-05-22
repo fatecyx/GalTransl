@@ -144,6 +144,23 @@ class BaseTranslate:
 
         self.smartRetry:bool=config.getKey("smartRetry", True)
 
+        self.dynamic_num_per_request = self._coerce_bool(
+            config.getKey("gpt.dynamicNumPerRequestTranslate", False)
+        )
+        self.dynamic_num_per_request_min = self._coerce_positive_int(
+            config.getKey("gpt.dynamicNumPerRequestTranslate.min", 1), 1
+        )
+        self.dynamic_num_per_request_max = self._coerce_positive_int(
+            config.getKey("gpt.dynamicNumPerRequestTranslate.max", 16), 16
+        )
+        if self.dynamic_num_per_request_min > self.dynamic_num_per_request_max:
+            self.dynamic_num_per_request_min, self.dynamic_num_per_request_max = (
+                self.dynamic_num_per_request_max,
+                self.dynamic_num_per_request_min,
+            )
+        self._dynamic_num_per_request_current: Optional[int] = None
+        self._dynamic_num_per_request_success_streak = 0
+
         metrics = getattr(config, "request_health_metrics", None)
         if metrics is None:
             metrics = RequestHealthMetrics()
@@ -176,6 +193,76 @@ class BaseTranslate:
             self.opencc = OpenCC("s2tw.json")
 
         pass
+
+    @staticmethod
+    def _coerce_bool(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"true", "1", "yes", "on"}
+        return bool(value)
+
+    @staticmethod
+    def _coerce_positive_int(value, default: int) -> int:
+        try:
+            result = int(value)
+        except (TypeError, ValueError):
+            result = default
+        return max(1, result)
+
+    def _get_effective_num_per_request(self, configured_value: int, proofread: bool = False) -> int:
+        configured = self._coerce_positive_int(configured_value, 1)
+        if proofread or not self.dynamic_num_per_request:
+            return configured
+
+        if self._dynamic_num_per_request_current is None:
+            self._dynamic_num_per_request_current = min(
+                self.dynamic_num_per_request_max,
+                max(self.dynamic_num_per_request_min, configured),
+            )
+        return self._dynamic_num_per_request_current
+
+    def _update_dynamic_num_per_request(
+        self,
+        requested_count: int,
+        completed_count: int,
+        trans_result: CTransList,
+        filename: str,
+        proofread: bool = False,
+    ) -> None:
+        if proofread or not self.dynamic_num_per_request:
+            return
+
+        current = self._get_effective_num_per_request(requested_count, proofread=False)
+        failed_markers = ("(Failed)", "(翻译失败)")
+        has_failed_result = any(
+            any(marker in getattr(trans, "pre_dst", "") for marker in failed_markers)
+            for trans in trans_result
+        )
+        has_parse_issue = completed_count < requested_count or has_failed_result
+
+        if has_parse_issue:
+            next_value = max(self.dynamic_num_per_request_min, max(1, current // 2))
+            self._dynamic_num_per_request_success_streak = 0
+            if next_value != current:
+                LOGGER.warning(
+                    f"[{filename}]动态句数调整：检测到解析异常，单次翻译句数 {current} -> {next_value}"
+                )
+                self._dynamic_num_per_request_current = next_value
+            return
+
+        if completed_count >= requested_count and requested_count == current:
+            self._dynamic_num_per_request_success_streak += 1
+            if (
+                self._dynamic_num_per_request_success_streak >= 3
+                and current < self.dynamic_num_per_request_max
+            ):
+                next_value = min(self.dynamic_num_per_request_max, current + 1)
+                LOGGER.info(
+                    f"[{filename}]动态句数调整：连续成功，单次翻译句数 {current} -> {next_value}"
+                )
+                self._dynamic_num_per_request_current = next_value
+                self._dynamic_num_per_request_success_streak = 0
 
     def _apply_internal_prompt_template_overrides(self) -> None:
         """Apply runtime prompt-template overrides passed from backend service layer."""
@@ -491,9 +578,13 @@ class BaseTranslate:
 
         while i < len_trans_list:
             self._check_stop_requested()
+            effective_num_pre_request = self._get_effective_num_per_request(
+                num_pre_request,
+                proofread=proofread,
+            )
             trans_list_split = (
-                translist_unhit[i : i + num_pre_request]
-                if (i + num_pre_request < len_trans_list)
+                translist_unhit[i : i + effective_num_pre_request]
+                if (i + effective_num_pre_request < len_trans_list)
                 else translist_unhit[i:]
             )
 
@@ -547,6 +638,13 @@ class BaseTranslate:
             if num > 0:
                 i += num
             self.pj_config.bar(num)
+            self._update_dynamic_num_per_request(
+                requested_count=len(trans_list_split),
+                completed_count=max(0, num),
+                trans_result=trans_result,
+                filename=filename,
+                proofread=proofread,
+            )
 
             result_output = ""
             for trans in trans_result:

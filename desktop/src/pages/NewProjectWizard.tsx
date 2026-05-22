@@ -62,6 +62,9 @@ export function NewProjectWizard({ onOpenProject }: NewProjectWizardProps) {
   const [selectedFilePlugin, setSelectedFilePlugin] = useState('file_galtransl_json');
   const [workersPerProject, setWorkersPerProject] = useState(16);
   const [numPerRequest, setNumPerRequest] = useState(16);
+  const [dynamicNumPerRequest, setDynamicNumPerRequest] = useState(false);
+  const [dynamicNumPerRequestMin, setDynamicNumPerRequestMin] = useState(8);
+  const [dynamicNumPerRequestMax, setDynamicNumPerRequestMax] = useState(64);
   const [language, setLanguage] = useState('zh-cn');
   const [guidelines, setGuidelines] = useState<string[]>([]);
   const [translationGuideline, setTranslationGuideline] = useState('');
@@ -311,6 +314,9 @@ export function NewProjectWizard({ onOpenProject }: NewProjectWizardProps) {
       common.language = language;
 
       common['gpt.numPerRequestTranslate'] = numPerRequest;
+      common['gpt.dynamicNumPerRequestTranslate'] = dynamicNumPerRequest;
+      common['gpt.dynamicNumPerRequestTranslate.min'] = dynamicNumPerRequestMin;
+      common['gpt.dynamicNumPerRequestTranslate.max'] = dynamicNumPerRequestMax;
       common['gpt.contextNum'] = 8;
       if (translationGuideline) {
         common['gpt.translation_guideline'] = translationGuideline;
@@ -338,7 +344,7 @@ export function NewProjectWizard({ onOpenProject }: NewProjectWizardProps) {
     } catch (err) {
       setFeedback({ type: 'error', message: `保存失败: ${err instanceof Error ? err.message : String(err)}` });
     }
-  }, [projectDir, workersPerProject, language, numPerRequest, selectedFilePlugin, selectedBackend, translationGuideline]);
+  }, [projectDir, workersPerProject, language, numPerRequest, dynamicNumPerRequest, dynamicNumPerRequestMin, dynamicNumPerRequestMax, selectedFilePlugin, selectedBackend, translationGuideline]);
 
   // ── Step 5: Auto-extract names on entry ──
   useEffect(() => {
@@ -571,6 +577,34 @@ export function NewProjectWizard({ onOpenProject }: NewProjectWizardProps) {
           onChange={(e) => setNumPerRequest(Number(e.target.value))}
         />
         <span className="field__hint">建议 8~20，兼顾质量和成本。</span>
+      </div>
+      <div className="field">
+        <span className="field__label">动态句数调整</span>
+        <CustomSelect value={String(dynamicNumPerRequest)} onChange={(e) => setDynamicNumPerRequest(e.target.value === 'true')}>
+          <option value="false">关闭</option>
+          <option value="true">开启</option>
+        </CustomSelect>
+        <span className="field__hint">根据解析错误自动降低句数，稳定后逐步提升。</span>
+      </div>
+      <div className="field">
+        <span className="field__label">动态最小句数</span>
+        <input
+          className="field__input"
+          type="number"
+          min={1}
+          value={dynamicNumPerRequestMin}
+          onChange={(e) => setDynamicNumPerRequestMin(Number(e.target.value))}
+        />
+      </div>
+      <div className="field">
+        <span className="field__label">动态最大句数</span>
+        <input
+          className="field__input"
+          type="number"
+          min={1}
+          value={dynamicNumPerRequestMax}
+          onChange={(e) => setDynamicNumPerRequestMax(Number(e.target.value))}
+        />
       </div>
       <div className="field wizard-settings-grid__full">
         <span className="field__label">目标语言</span>

@@ -332,7 +332,11 @@ class CSakuraTranslate(BaseTranslate):
             self._check_stop_requested()
             # await asyncio.sleep(1)
 
-            trans_list_split = translist_unhit[i : i + num_pre_request]
+            effective_num_pre_request = self._get_effective_num_per_request(
+                num_pre_request,
+                proofread=proofread,
+            )
+            trans_list_split = translist_unhit[i : i + effective_num_pre_request]
             dic_prompt = (
                 gpt_dic.gen_prompt(trans_list_split, type="sakura")
                 if gpt_dic != None
@@ -341,13 +345,20 @@ class CSakuraTranslate(BaseTranslate):
 
             num, trans_result = await self.translate(trans_list_split, dic_prompt, filename)
 
-            if self.transl_dropout > 0 and num == num_pre_request:
+            if self.transl_dropout > 0 and num == effective_num_pre_request:
                 if self.transl_dropout < num:
                     num -= self.transl_dropout
                     trans_result = trans_result[:num]
 
             i += num if num > 0 else 0
             self.pj_config.bar(num)
+            self._update_dynamic_num_per_request(
+                requested_count=len(trans_list_split),
+                completed_count=max(0, num),
+                trans_result=trans_result,
+                filename=filename,
+                proofread=proofread,
+            )
             transl_step_count += 1
             if transl_step_count >= self.save_steps:
                 await save_transCache_to_json(
