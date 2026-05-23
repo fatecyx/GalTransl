@@ -18,6 +18,7 @@ import {
   fetchProjectRuntime,
   getSelectedTranslatorTemplate,
   getSelectedBackendProfileJobPayload,
+  resolveSelectedBackendProfile,
   setSelectedTranslatorTemplate,
   stopProjectTranslation,
   submitJob } from '../lib/api';
@@ -61,6 +62,66 @@ type RetranslListItem = {
   count: number;
 };
 
+type BackendUsageSummary = {
+  backend: string;
+  model: string;
+  profile: string;
+};
+
+function stringifyConfigValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function toModelDisplayName(modelName: string): string {
+  const trimmed = modelName.trim();
+  return trimmed.split('/').filter(Boolean).pop() ?? trimmed;
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function collectBackendModels(config: Record<string, unknown> | null): { backend: string; model: string } {
+  if (!config) {
+    return { backend: '未配置后端类型', model: '未填写模型' };
+  }
+
+  const enabledBackends: string[] = [];
+  const models: string[] = [];
+
+  const openAiConfig = config['OpenAI-Compatible'];
+  if (openAiConfig && typeof openAiConfig === 'object') {
+    enabledBackends.push('OpenAI-Compatible');
+    const tokens = Array.isArray((openAiConfig as Record<string, unknown>).tokens)
+      ? (openAiConfig as Record<string, unknown>).tokens as Array<Record<string, unknown>>
+      : [];
+    models.push(...tokens.map((token) => toModelDisplayName(stringifyConfigValue(token.modelName))));
+  }
+
+  const sakuraConfig = config.SakuraLLM;
+  if (sakuraConfig && typeof sakuraConfig === 'object') {
+    enabledBackends.push('SakuraLLM');
+    const rewriteModelName = stringifyConfigValue((sakuraConfig as Record<string, unknown>).rewriteModelName);
+    if (rewriteModelName) models.push(toModelDisplayName(rewriteModelName));
+  }
+
+  return {
+    backend: uniqueNonEmpty(enabledBackends).join(' / ') || '未配置后端类型',
+    model: uniqueNonEmpty(models).join(' / ') || '未填写模型',
+  };
+}
+
+function summarizeBackendUsage(projectDir: string, projectBackendConfig: Record<string, unknown> | null): BackendUsageSummary {
+  const { name, profile } = resolveSelectedBackendProfile(projectDir);
+  const activeConfig = profile ?? projectBackendConfig;
+  const { model } = collectBackendModels(activeConfig);
+  return {
+    backend: profile ? name : '自定义后端',
+    model,
+    profile: name,
+  };
+}
+
 function readContinuousRetranslEnabled(projectDir: string): boolean {
   try {
     const raw = localStorage.getItem(CONTINUOUS_RETRANSL_STORAGE_KEY);
@@ -100,6 +161,7 @@ export function ProjectTranslatePage({ ctx }: { ctx: ProjectPageContext }) {
   const [runtime, setRuntime] = useState<ProjectRuntimeResponse | null>(
     () => (projectId ? cachedRuntimeByProject.get(projectId) ?? null : null),
   );
+  const [projectBackendConfig, setProjectBackendConfig] = useState<Record<string, unknown> | null>(null);
   const [selectedSuccessFiles, setSelectedSuccessFiles] = useState<string[]>([]);
   const [freshSuccessIds, setFreshSuccessIds] = useState<string[]>([]);
   const seenSuccessIdsRef = useRef<Set<string>>(new Set());
@@ -183,6 +245,30 @@ export function ProjectTranslatePage({ ctx }: { ctx: ProjectPageContext }) {
     void refreshJobs();
     void refreshRuntime(true);
   }, [refreshJobs, refreshRuntime]);
+
+  useEffect(() => {
+    if (!projectId) {
+      setProjectBackendConfig(null);
+      return;
+    }
+    let cancelled = false;
+    fetchProjectConfig(projectId, configFileName || 'config.yaml')
+      .then((res) => {
+        if (cancelled) return;
+        const backendSpecific = res.config?.backendSpecific;
+        setProjectBackendConfig(
+          backendSpecific && typeof backendSpecific === 'object'
+            ? backendSpecific as Record<string, unknown>
+            : null,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setProjectBackendConfig(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, configFileName]);
 
   const refreshRetranslKeys = useCallback(async () => {
     if (!projectId) {
@@ -482,6 +568,13 @@ export function ProjectTranslatePage({ ctx }: { ctx: ProjectPageContext }) {
   );
 
   const projectName = projectDir ? projectDir.split(/[/\\]/).filter(Boolean).pop() || '' : '';
+  const backendUsageSummary = useMemo(
+    () => projectDir
+      ? summarizeBackendUsage(projectDir, projectBackendConfig)
+      : { backend: '未选择项目', model: '未选择项目', profile: '' },
+    [projectDir, projectBackendConfig],
+  );
+  const backendDisplayText = `${backendUsageSummary.backend}:${backendUsageSummary.model}`;
   const runtimeStage = (runtimeMatchesProject ? (runtime?.stage ?? '') : '').trim();
   const runtimeRetranslPendingCount = useMemo(
     () => (runtimeMatchesProject
@@ -808,6 +901,10 @@ export function ProjectTranslatePage({ ctx }: { ctx: ProjectPageContext }) {
           <div className="ptv2-stat">
             <span className="ptv2-stat__value">{elapsedText}</span>
             <span className="ptv2-stat__label">已用时长</span>
+          </div>
+          <div className="ptv2-stat ptv2-stat--backend" title={`当前后端：${backendDisplayText}`}>
+            <span className="ptv2-stat__value">{backendDisplayText}</span>
+            <span className="ptv2-stat__label">当前后端</span>
           </div>
         </div>
       </section>

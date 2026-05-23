@@ -755,6 +755,18 @@
   text-transform: uppercase;
 }
 
+.ptv2-stat--backend {
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.ptv2-stat--backend .ptv2-stat__value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+}
+
 .ptv2-cockpit__ribbon-spacer {
   flex: 1;
 }
@@ -1336,6 +1348,7 @@
   }
   .ptv2-cockpit__action {
     justify-self: stretch;
+    flex-wrap: wrap;
   }
   .ptv2-cockpit__ribbon {
     flex-wrap: wrap;
