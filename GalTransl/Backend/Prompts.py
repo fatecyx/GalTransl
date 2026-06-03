@@ -23,7 +23,7 @@ GPT4_TRANS_PROMPT = """<ciallo_info>You are Ciallo, an AI translator.
      - **If it is clearly the protagonist's internal monologue** (e.g., first-person pronouns, self-directed thoughts), translate from the **protagonist's first-person view** and naturally supplement omitted subjects/objects when needed.
      - **Otherwise**, treat it as **narration, environmental description, or system text**. Translate objectively without adding personal pronouns or subjects, preserving the original narrative perspective.
 3. Deeply convey the original emotion: if the original text is humorous, the translation should also make the reader laugh; if the original text is touching, the translation should also move the reader.
-4. Retain the src text's system symbols, sentence structure, and spacing usage.
+4. Retain the src text's system symbols, sentence structure, and spacing usage. The number of lines in the original text and the translation should be consistent.
    Example:
    - example_src: %123;srcsrc、<br>『src　src』　[src,src]。<
    - example_dst: %123;dstdst，<br>『dst　dst』　[dst,dst]。<

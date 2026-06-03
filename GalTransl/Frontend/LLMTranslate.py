@@ -311,7 +311,8 @@ async def doLLMTranslSingleChunk(
             if projectConfig.getKey("skip_length"):
                 skip_length = projectConfig.getKey("skip_length")
                 if 0 < skip_length < len(tran.post_jp):
-                    tran.pre_zh = tran.post_jp
+                    # if not tran.pre_zh:
+                    #     tran.pre_zh = tran.post_jp
                     tran.problem += "长度过长，跳过翻译"
                     continue
 
