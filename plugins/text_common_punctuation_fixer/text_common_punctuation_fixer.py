@@ -637,30 +637,43 @@ class text_common_punctuation_fixer(GTextPlugin):
         def fw_to_hw(s: str) -> str:
             return "".join(FULLWIDTH_TO_HALF.get(c, c) for c in s)
 
-        def get_dst_typed_segs(dst_str: str) -> list[tuple[str, int, int, str]]:
+        def get_dst_typed_segs(dst_str: str) -> list[tuple[str, int, int, str, bool]]:
             """
             将 dst 的所有半角词块按字母/数字类型细分，返回：
-            [(type, abs_start, abs_end, chars), ...]
+            [(type, abs_start, abs_end, chars, mixed), ...]
             type: 'L'=字母段, 'D'=数字段
+            mixed: 该段所在的半角词块是否同时包含字母和数字
+                   （如 'v12' 中的 'v' 段和 '12' 段均为 mixed=True）
             """
             segs = []
             for m in re_hw.finditer(dst_str):
                 block = m.group()
                 bs = m.start()
+                # 判断该词块是否为混合型（同时含字母和数字）
+                has_alpha = any(c.isalpha() for c in block)
+                has_digit = any(c.isdigit() for c in block)
+                mixed = has_alpha and has_digit
                 cur_t = 'L' if block[0].isalpha() else 'D'
                 run_start = 0
                 for i, c in enumerate(block):
                     t = 'L' if c.isalpha() else 'D'
                     if t != cur_t:
-                        segs.append((cur_t, bs + run_start, bs + i, block[run_start:i]))
+                        segs.append((cur_t, bs + run_start, bs + i, block[run_start:i], mixed))
                         cur_t, run_start = t, i
-                segs.append((cur_t, bs + run_start, bs + len(block), block[run_start:]))
+                segs.append((cur_t, bs + run_start, bs + len(block), block[run_start:], mixed))
             return segs
 
         def find_typed_segs(hw_str: str, typ: str,
-                            segs: list[tuple[str, int, int, str]]) -> list[int]:
-            """在 segs 中找 type==typ 且 chars==hw_str 的条目索引列表。"""
-            return [i for i, (t, s, e, c) in enumerate(segs) if t == typ and c == hw_str]
+                            segs: list[tuple[str, int, int, str, bool]]) -> list[int]:
+            """
+            在 segs 中找 type==typ 且 chars==hw_str 的条目索引列表。
+            对 D 型匹配，排除 mixed=True 的数字段（如 v12 里的 12），
+            这类数字段属于字母+数字混合词块，不应被单独视为纯数字的翻译对应。
+            """
+            if typ == 'D':
+                return [i for i, (t, s, e, c, mx) in enumerate(segs)
+                        if t == typ and c == hw_str and not mx]
+            return [i for i, (t, s, e, c, mx) in enumerate(segs) if t == typ and c == hw_str]
 
         def find_exact_hw_blocks(hw_str: str, dst_str: str):
             """在 dst_str 中找与 hw_str 完全相等的独立 hw 词块（返回 match 对象列表）。"""
@@ -819,7 +832,7 @@ class text_common_punctuation_fixer(GTextPlugin):
                     all_reps = []  # [(start, end, fw), ...]
                     for fw, hw, typ, idxs in results:
                         for idx in idxs:
-                            _, s, e, _ = dst_typed_segs[idx]
+                            _, s, e, _, _mx = dst_typed_segs[idx]
                             all_reps.append((s, e, fw))
                     all_reps.sort(key=lambda x: x[0], reverse=True)
                     for s, e, fw_r in all_reps:
@@ -854,7 +867,29 @@ class text_common_punctuation_fixer(GTextPlugin):
                             f"全角转换歧义：{combined_hw}→{combined_fw}"
                             f"(出现{len(combined_matches)}次)"
                         )
-                # else: 合并也找不到 → 静默跳过（子串或其他情况）
+                else:
+                    # ── 阶段③：子块独立降级替换 ──────────────────────────────────
+                    # 合并匹配也找不到时，对每个子块单独尝试：
+                    # L 型：有匹配就替换（字母通常唯一，即使多次也全替换）
+                    # D 型：仅唯一匹配非混合词段才替换，避免误匹配
+                    dst_typed_segs3 = get_dst_typed_segs(dst)
+                    partial_reps = []
+                    for fw_s, hw_s, typ_s in need_replace:
+                        idxs3 = find_typed_segs(hw_s, typ_s, dst_typed_segs3)
+                        if typ_s == 'L' and len(idxs3) >= 1:
+                            for idx3 in idxs3:
+                                _, s3, e3, _, _mx3 = dst_typed_segs3[idx3]
+                                partial_reps.append((s3, e3, fw_s))
+                        elif typ_s == 'D' and len(idxs3) == 1:
+                            _, s3, e3, _, _mx3 = dst_typed_segs3[idxs3[0]]
+                            partial_reps.append((s3, e3, fw_s))
+                    if partial_reps:
+                        if DEBUG_FULLWIDTH:
+                            print(f"  [DBG ③] partial_reps={partial_reps} dst={dst!r}")
+                        partial_reps.sort(key=lambda x: x[0], reverse=True)
+                        for s3, e3, fw_r in partial_reps:
+                            dst = dst[:s3] + fw_r + dst[e3:]
+                    # else: 所有阶段均无匹配 → 静默跳过
 
             # ── 带圈数字缺失告警（排除已被数字串吸收的） ───────────────────────────
             # 补充检查：对仍未核算的带圈数字，按 sub_blocks 顺序组成连续 C-组，
@@ -974,8 +1009,9 @@ class text_common_punctuation_fixer(GTextPlugin):
         warnings |= w
 
         # 6. 全角字符按词块转换（歧义时告警）
-        dst, w = self.fix_fullwidth_chars(src, dst)
-        warnings |= w
+        if self.全角转换:
+            dst, w = self.fix_fullwidth_chars(src, dst)
+            warnings |= w
 
         return dst, warnings
 
@@ -987,7 +1023,7 @@ class text_common_punctuation_fixer(GTextPlugin):
         settings = plugin_conf.get("Settings", {})
         self.source_cjk = settings.get("source_cjk", True)
         self.检查数量一致 = settings.get("检查数量一致", True)
-        self.全角转换 = settings.get("全角转换", False)
+        self.全角转换 = settings.get("全角转换", True)
         LOGGER.info(f"[{self.pname}] fixer_common_punctuation·启动！")
         LOGGER.info(f"[{self.pname}] source_cjk:{self.source_cjk}")
         LOGGER.info(f"[{self.pname}] 检查数量一致:{self.检查数量一致}")
@@ -1027,7 +1063,7 @@ if __name__ == "__main__":
                 self.problem = ""
 
     coder = text_common_punctuation_fixer()
-    coder.gtp_init({"Core": {}, "Settings": {}}, {})
+    coder.gtp_init({"Core": {}, "Settings": {'全角转换':True}}, {})
 
     test_cases = [
         # (描述, src, dst_input)
@@ -1148,6 +1184,14 @@ if __name__ == "__main__":
         ("括号修正2",
         "（噗噜噗噜……）",
         "(ぷるぷる……)",),
+
+        ("带参数测试1",
+         "ＡＢＣ１２测试v12",
+         "v12测试ABC"),   # ④⑤→45 被译者并入数字段，期望：ＡＢＣ１２３④⑤，无告警
+
+        ("带参数测试2",
+         "ＡＢＣ１２测试v12",
+         "v12测试ABC和12"),  # ④⑤→45 被译者并入数字段，期望：ＡＢＣ１２３④⑤，无告警
     ]
 
     for desc, src, dst_in in test_cases:
