@@ -22,6 +22,15 @@ punctuation = r"""!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"""
 punctuation_zh = "。？！…（）；：《》「」『』【】"
 printable = digits + ascii_letters + punctuation + whitespace
 
+def load_guideline_file(file_path: str) -> str:
+    try:
+        if "translation_guidelines" not in file_path:
+            file_path=os.path.join( "translation_guidelines",file_path)
+        with open(file_path, "r", encoding="utf-8") as file:
+            return file.read()
+    except Exception as e:
+        print(f"Error reading translation_guideline file {file_path}: {e}")
+        raise e
 
 def extract_control_substrings(text: str) -> list[str]:
     """
@@ -258,9 +267,6 @@ def extract_code_blocks(content: str) -> Tuple[List[str], List[str]]:
     # 匹配带语言标签的代码块
     matches_with_lang = PATTERN_CODE_BLOCK.findall(content)
 
-    # 补全代码块的```结尾符
-    if not matches_with_lang:
-        matches_with_lang = PATTERN_CODE_BLOCK.findall(content + '\n```')
     # 提取所有匹配到的带语言标签的代码块
     lang_list = []
     code_list = []

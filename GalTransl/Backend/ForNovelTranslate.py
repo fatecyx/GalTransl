@@ -1,6 +1,6 @@
 import json, time, asyncio, os, traceback, re
 from opencc import OpenCC
-from typing import Optional
+from typing import Optional, List, Set
 from GalTransl.COpenAI import COpenAITokenPool
 from GalTransl.ConfigHelper import CProxyPool
 from GalTransl import LOGGER, LANG_SUPPORTED, TRANSLATOR_DEFAULT_ENGINE
@@ -13,9 +13,9 @@ from random import choice
 from GalTransl.CSentense import CSentense, CTransList
 from GalTransl.Cache import save_transCache_to_json
 from GalTransl.Dictionary import CGptDict
-from GalTransl.Utils import extract_code_blocks, fix_quotes2
+from GalTransl.Utils import extract_code_blocks
 from GalTransl.Backend.Prompts import (
-    FORGAL_SYSTEM,
+    FORGAL_TSV_SYSTEM,
     FORNOVEL_TRANS_PROMPT_EN,
     H_WORDS_LIST,
 )
@@ -34,7 +34,8 @@ class ForNovelTranslate(BaseTranslate):
     ):
         super().__init__(config, eng_type, proxy_pool, token_pool)
         self.trans_prompt = FORNOVEL_TRANS_PROMPT_EN
-        self.system_prompt = FORGAL_SYSTEM
+        self.system_prompt = FORGAL_TSV_SYSTEM
+        self._apply_internal_prompt_template_overrides()
         # enhance_jailbreak
         if val := config.getKey("gpt.enhance_jailbreak"):
             self.enhance_jailbreak = val
@@ -52,16 +53,10 @@ class ForNovelTranslate(BaseTranslate):
         input_list = []
         tmp_enhance_jailbreak = False
         n_symbol = ""
-        start_idx = trans_list[0].index
-        end_idx = trans_list[-1].index
-        idx_tip = ""
-        if start_idx != end_idx:
-            idx_tip = f"{start_idx}~{end_idx}"
-        else:
-            idx_tip = start_idx
+        idx_tip = self._build_idx_tip(trans_list)
 
         for i, trans in enumerate(trans_list):
-            src_text = trans.post_jp
+            src_text = trans.post_src
             if "\\r\\n" in src_text:
                 n_symbol = "\\r\\n"
             elif "\r\n" in src_text:
@@ -81,14 +76,12 @@ class ForNovelTranslate(BaseTranslate):
 
         self.restore_context(trans_list, self.contextNum, filename)
 
-        prompt_req = self.trans_prompt
-        prompt_req = prompt_req.replace("[Input]", input_src)
-        prompt_req = prompt_req.replace("[Glossary]", gptdict)
-        prompt_req = prompt_req.replace("[SourceLang]", self.source_lang)
-        prompt_req = prompt_req.replace("[TargetLang]", self.target_lang)
+        prompt_template = self._build_prompt_request(input_src, gptdict)
 
         retry_count = 0
+        emitted_success_indices = set()
         while True:  # 一直循环，直到得到数据
+            self._check_stop_requested()
             if self.enhance_jailbreak or tmp_enhance_jailbreak:
                 assistant_prompt = "```DST\tID\n"
             else:
@@ -96,19 +89,7 @@ class ForNovelTranslate(BaseTranslate):
 
             messages = []
             messages.append({"role": "system", "content": self.system_prompt})
-            if (
-                filename in self.last_translations
-                and self.last_translations[filename] != ""
-            ):
-                self.last_translations[filename] = self.last_translations[
-                    filename
-                ].replace("<br>", "")
-                messages.append(
-                    {"role": "user", "content": "###Input\n(...truncated history source texts...)\n### Output\n"}
-                )
-                messages.append(
-                    {"role": "assistant", "content": self.last_translations[filename]}
-                )
+            prompt_req = self._apply_history_result(prompt_template, filename)
             messages.append({"role": "user", "content": prompt_req})
             if assistant_prompt:
                 messages.append({"role": "assistant", "content": assistant_prompt})
@@ -118,11 +99,39 @@ class ForNovelTranslate(BaseTranslate):
                     f"->{'翻译输入' if not proofread else '校对输入'}：\n{gptdict}\n{input_src}\n"
                 )
                 LOGGER.info("->输出：")
+            parsed_result_trans_list = []
+            stream_parse_error_message = ""
+            stream_cursor = {"i": -1, "success_count": 0}
+
+            def _parse_stream_lines(lines, is_final_chunk):
+                nonlocal stream_parse_error_message, parsed_result_trans_list
+                if stream_parse_error_message:
+                    return False
+                for raw_line in lines:
+                    line = raw_line.strip()
+                    if not line or "```" in line or line.startswith("DST"):
+                        continue
+                    parse_ok, parse_error = self._parse_novel_result_line(
+                        line,
+                        trans_list,
+                        getattr(self, "_last_chatbot_model_name", ""),
+                        n_symbol,
+                        stream_cursor,
+                        parsed_result_trans_list,
+                        filename=filename,
+                        emit_runtime_success=(not proofread),
+                        emitted_success_indices=emitted_success_indices,
+                    )
+                    if not parse_ok:
+                        stream_parse_error_message = parse_error
+                        return False
+                return True
             resp = None
             resp, token = await self.ask_chatbot(
                 messages=messages,
                 file_name=f"{filename}:{idx_tip}",
-                base_try_count=retry_count
+                base_try_count=retry_count,
+                stream_line_callback=_parse_stream_lines,
             )
 
             result_text = resp or ""
@@ -139,89 +148,70 @@ class ForNovelTranslate(BaseTranslate):
                 error_message = "输出为空/被拦截"
                 error_flag = True
 
-            for line in result_lines:
-                if "```" in line:
-                    continue
-                if line.strip() == "":
-                    continue
-                if line.startswith("DST"):
-                    continue
-
-                line_sp = line.split("\t")
-                if len(line_sp) != 2:
-                    error_message = f"无法解析行：{line}"
+            if getattr(self, "_last_chatbot_was_stream", False):
+                if stream_parse_error_message:
+                    error_message = stream_parse_error_message
                     error_flag = True
-                    break
+                result_trans_list = parsed_result_trans_list
+                success_count = len(parsed_result_trans_list)
+                i = stream_cursor["i"]
+            else:
+                for line in result_lines:
+                    if "```" in line:
+                        continue
+                    if line.strip() == "":
+                        continue
+                    if line.startswith("DST"):
+                        continue
 
-                i += 1
-                # 本行输出不正常
-                try:
-                    line_id = line_sp[1]
-                except:
-                    error_message = f"第{line}句id无法解析"
-                    error_flag = True
-                    break
-                if str(trans_list[i].index) not in line_id:
-                    error_message = f"{line_id}句id未对应{trans_list[i].index}"
-                    error_flag = True
-                    break
+                    parse_ok, parse_error = self._parse_novel_result_line(
+                        line,
+                        trans_list,
+                        getattr(token, "model_name", ""),
+                        n_symbol,
+                        {"i": i, "success_count": success_count},
+                        result_trans_list,
+                        filename=filename,
+                        emit_runtime_success=False,
+                        emitted_success_indices=emitted_success_indices,
+                    )
+                    if not parse_ok:
+                        error_message = parse_error
+                        error_flag = True
+                        break
+                    i += 1
+                    success_count += 1
+                    if i >= len(trans_list) - 1:
+                        break
 
-                line_dst = line_sp[0]
-                # 本行输出不应为空
-                if trans_list[i].post_jp != "" and line_dst == "":
-                    error_message = f"第{line_id}句空白"
-                    error_flag = True
-                    break
-                if "�" in line_dst:
-                    error_message = f"第{line_id}句包含乱码：" + line_dst
-                    error_flag = True
-                    break
-
-                if "Chinese" in self.target_lang:  # 统一简繁体
-                    line_dst = self.opencc.convert(line_dst)
-
-                if (
-                    "”" not in trans_list[i].post_jp
-                    and '"' not in trans_list[i].post_jp
-                ):
-                    line_dst = line_dst.replace('"', "")
-                elif '"' not in trans_list[i].post_jp and '"' in line_dst:
-                    line_dst = fix_quotes2(line_dst)
-                elif '"' in trans_list[i].post_jp and "”" in line_dst:
-                    line_dst = line_dst.replace("“", '"')
-                    line_dst = line_dst.replace("”", '"')
-
-                if "「" not in line_dst and trans_list[i].post_jp.startswith("「"):
-                    line_dst = "「" + line_dst
-                if "」" not in line_dst and trans_list[i].post_jp.endswith("」"):
-                    line_dst = line_dst + "」"
-
-                line_dst = line_dst.replace("[t]", "\t")
-                if n_symbol:
-                    line_dst = line_dst.replace("<br>", n_symbol)
-                    line_dst = line_dst.replace("<BR>", n_symbol)
-
-                if "……" in trans_list[i].post_jp and "..." in line_dst:
-                    line_dst = line_dst.replace("......", "……")
-                    line_dst = line_dst.replace("...", "……")
-
-                trans_list[i].pre_zh = line_dst
-                trans_list[i].post_zh = line_dst
-                trans_list[i].trans_by = token.model_name
-                result_trans_list.append(trans_list[i])
-                success_count += 1
-                if i >= len(trans_list) - 1:
-                    break
-
-            if success_count > 0:
+            if success_count > 0 and not stream_parse_error_message:
                 error_flag = False  # 部分解析
 
+            if not error_flag and success_count <= 0 and not result_trans_list:
+                error_message = "未解析到有效句子"
+                error_flag = True
+
             if error_flag:
+                try:
+                    from GalTransl.server import record_runtime_error
+                    record_runtime_error(
+                        getattr(self.pj_config, "runtime_project_dir", self.pj_config.getProjectDir()),
+                        kind="parse",
+                        message=error_message,
+                        filename=filename,
+                        index_range=idx_tip,
+                        retry_count=retry_count + 1,
+                        model=getattr(token, "model_name", ""),
+                        level="warning",
+                    )
+                except Exception:
+                    pass
 
                 LOGGER.warning(
                     f"[解析错误][{filename}:{idx_tip}]解析结果出错：{error_message}"
                 )
                 retry_count += 1
+                self._check_stop_requested()
                 await asyncio.sleep(1)
 
                 tmp_enhance_jailbreak = not tmp_enhance_jailbreak
@@ -250,20 +240,17 @@ class ForNovelTranslate(BaseTranslate):
                     LOGGER.error(
                         f"[解析错误][{filename}:{idx_tip}]解析反复出错，跳过本轮翻译"
                     )
-                    i = 0 if i < 0 else i
-                    while i < len(trans_list):
-                        if not proofread:
-                            trans_list[i].pre_zh = "(翻译失败)"+trans_list[i].post_jp
-                            trans_list[i].post_zh = "(翻译失败)"+trans_list[i].post_jp
-                            trans_list[i].problem += "翻译失败"
-                            trans_list[i].trans_by = f"{token.model_name}(Failed)"
-                        else:
-                            trans_list[i].proofread_zh = trans_list[i].pre_zh
-                            trans_list[i].post_zh = trans_list[i].pre_zh
-                            trans_list[i].problem = "Failed translation"
-                            trans_list[i].proofread_by = f"{token.model_name}(Failed)"
-                        result_trans_list.append(trans_list[i])
-                        i = i + 1
+                    i = self._append_parse_failure_fallback_results(
+                        trans_list,
+                        0 if i < 0 else i,
+                        result_trans_list,
+                        getattr(token, "model_name", ""),
+                        proofread=proofread,
+                        translate_failed_prefix="(Failed)",
+                        translate_problem_message="翻译失败",
+                        proofread_problem_message="翻译失败",
+                        proofread_problem_append=True,
+                    )
                     return i, result_trans_list
                 continue
             elif error_flag == False and error_message:
@@ -274,6 +261,53 @@ class ForNovelTranslate(BaseTranslate):
             # 翻译完成，收尾
             break
         return success_count, result_trans_list
+
+    def _parse_novel_result_line(
+        self,
+        line: str,
+        trans_list: CTransList,
+        model_name: str,
+        n_symbol: str,
+        cursor: dict,
+        result_trans_list: list,
+        filename: str = "",
+        emit_runtime_success: bool = False,
+        emitted_success_indices: Optional[Set[int]] = None,
+    ):
+        line_sp = line.split("\t")
+        if len(line_sp) != 2:
+            return False, f"无法解析行：{line}"
+
+        cursor["i"] += 1
+        i = cursor["i"]
+        if i > len(trans_list) - 1:
+            return False, f"无法解析行：{line}"
+
+        line_id = line_sp[1]
+        if str(trans_list[i].index) not in line_id:
+            return False, f"{line_id}句id未对应{trans_list[i].index}"
+
+        line_dst = line_sp[0]
+        if trans_list[i].post_src != "" and line_dst == "":
+            return False, f"第{line_id}句空白"
+        if "�" in line_dst:
+            return False, f"第{line_id}句包含乱码：{line_dst}"
+
+        line_dst = self._normalize_parsed_translation_text(
+            line_dst, trans_list[i], n_symbol
+        )
+
+        return self._append_parsed_translation_result(
+            trans_list[i],
+            line_dst,
+            model_name,
+            cursor,
+            result_trans_list,
+            filename=filename,
+            emit_runtime_success=emit_runtime_success,
+            emitted_success_indices=emitted_success_indices,
+            result_index=i,
+        )
 
     async def batch_translate(
         self,
@@ -288,81 +322,26 @@ class ForNovelTranslate(BaseTranslate):
         translist_hit: CTransList = [],
         translist_unhit: CTransList = [],
     ) -> CTransList:
-        if len(translist_unhit) == 0:
-            return []
-        if self.skipH:
-            translist_unhit = [
-                tran
-                for tran in translist_unhit
-                if not any(word in tran.post_jp for word in H_WORDS_LIST)
-            ]
-
-        i = 0
-
-        trans_result_list = []
-        len_trans_list = len(translist_unhit)
-        transl_step_count = 0
-
-        while i < len_trans_list:
-            # await asyncio.sleep(1)
-            trans_list_split = (
-                translist_unhit[i : i + num_pre_request]
-                if (i + num_pre_request < len_trans_list)
-                else translist_unhit[i:]
-            )
-
-            dic_prompt = gpt_dic.gen_prompt(trans_list_split, "tsv") if gpt_dic else ""
-
-            num, trans_result = await self.translate(
-                trans_list_split, dic_prompt, proofread=proofread, filename=filename
-            )
-
-            if num > 0:
-                i += num
-            self.pj_config.bar(num)
-            result_output = ""
-            for trans in trans_result:
-                result_output = result_output + repr(trans)
-            LOGGER.info(result_output)
-            trans_result_list += trans_result
-            transl_step_count += 1
-            if transl_step_count >= self.save_steps:
-                await save_transCache_to_json(trans_list, cache_file_path)
-                transl_step_count = 0
-
-            trans_by = trans_result[0].trans_by
-            LOGGER.info(
-                f"{filename}: {str(len(trans_result_list))}/{str(len_trans_list)} with {trans_by}"
-            )
-
-        return trans_result_list
+        return await self._batch_translate_common(
+            filename=filename,
+            cache_file_path=cache_file_path,
+            translist_unhit=translist_unhit,
+            num_pre_request=num_pre_request,
+            gpt_dic=gpt_dic,
+            proofread=proofread,
+            glossary_style="tsv",
+            failed_markers=("(翻译失败)", "(Failed)"),
+            h_words_list=H_WORDS_LIST,
+        )
 
     def reset_conversation(self, filename):
         self.last_translations[filename] = ""
 
-    def restore_context(
-        self, translist_unhit: CTransList, num_pre_request: int, filename=""
-    ):
-        if translist_unhit[0].prev_tran == None:
-            return
-        tmp_context = []
-        num_count = 0
-        current_tran = translist_unhit[0].prev_tran
-        while current_tran != None:
-            if current_tran.pre_zh == "" or "(Failed)" in current_tran.pre_zh:
-                current_tran = current_tran.prev_tran
-                continue
-            tmp_obj = f"{current_tran.pre_zh}\t{current_tran.index}"
-            tmp_context.append(tmp_obj)
-            num_count += 1
-            if num_count >= num_pre_request:
-                break
-            current_tran = current_tran.prev_tran
+    def _format_restore_context_line(self, current_tran: CSentense) -> str:
+        return f"{current_tran.pre_dst}\t{current_tran.index}"
 
-        tmp_context.reverse()
-        json_lines = "\n".join(tmp_context)
-        self.last_translations[filename] = "NAME\tDST\tID\n" + json_lines
-        # LOGGER.info("-> 恢复了上下文")
+    def _format_restore_context_payload(self, lines: List[str]) -> str:
+        return "DST\tID\n" + "\n".join(lines)
 
 
 if __name__ == "__main__":

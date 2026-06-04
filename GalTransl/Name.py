@@ -1,8 +1,8 @@
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import openpyxl
 from os.path import join as joinpath, splitext
 from GalTransl.CSplitter import SplitChunkMetadata
-from GalTransl import LOGGER
+from GalTransl import LOGGER, INPUT_FOLDERNAME, CACHE_FOLDERNAME
 from GalTransl.ConfigHelper import CProjectConfig
 import csv
 from InquirerPy import inquirer
@@ -10,6 +10,156 @@ from InquirerPy.base.control import Choice
 import asyncio
 import sys  # Added for input
 import os
+
+try:
+    import orjson
+except ImportError:
+    orjson = None  # type: ignore[assignment]
+
+
+def extract_names_from_dir(dir_path: str) -> Dict[str, int]:
+    """
+    Scan all .json files in a directory and count speaker names.
+    Supports both input format (name/names) and cache format (name).
+
+    Args:
+        dir_path: Path to the directory containing JSON files.
+
+    Returns:
+        Dict mapping speaker name -> occurrence count, sorted by count descending.
+    """
+    name_counter: Dict[str, int] = {}
+    if not os.path.isdir(dir_path):
+        return name_counter
+
+    for fname in sorted(os.listdir(dir_path)):
+        if not fname.endswith(".json"):
+            continue
+        fpath = os.path.join(dir_path, fname)
+        try:
+            with open(fpath, "rb") as f:
+                raw = f.read()
+            if orjson is not None:
+                entries = orjson.loads(raw)
+            else:
+                import json as _json
+                entries = _json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            speaker = entry.get("name", entry.get("names", ""))
+            if isinstance(speaker, list):
+                for s in speaker:
+                    if s and isinstance(s, str):
+                        name_counter[s] = name_counter.get(s, 0) + 1
+            elif speaker and isinstance(speaker, str):
+                name_counter[speaker] = name_counter.get(speaker, 0) + 1
+
+    return dict(sorted(name_counter.items(), key=lambda x: x[1], reverse=True))
+
+
+def extract_names_from_project(project_dir: str) -> Dict[str, int]:
+    """
+    Extract speaker names from a project directory.
+    Tries gt_input first, falls back to transl_cache.
+
+    Args:
+        project_dir: Path to the project root directory.
+
+    Returns:
+        Dict mapping speaker name -> occurrence count, sorted by count descending.
+    """
+    input_dir = os.path.join(project_dir, INPUT_FOLDERNAME)
+    cache_dir = os.path.join(project_dir, CACHE_FOLDERNAME)
+    source_dir = input_dir if os.path.isdir(input_dir) else cache_dir
+    return extract_names_from_dir(source_dir)
+
+
+def write_name_table_csv(
+    csv_path: str,
+    name_counter: Dict[str, int],
+    dst_names: Dict[str, str] | None = None,
+) -> None:
+    """
+    Write a name replacement table to CSV format.
+    Columns: SRC_Name, DST_Name, Count
+
+    Args:
+        csv_path: Output CSV file path.
+        name_counter: Dict mapping speaker name -> occurrence count.
+        dst_names: Optional dict mapping src_name -> dst_name for translations.
+    """
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow(["SRC_Name", "DST_Name", "Count"])
+        for name, count in name_counter.items():
+            dst = dst_names.get(name, "") if dst_names else ""
+            writer.writerow([name, dst, count])
+
+
+def _load_existing_dst_names(proj_dir: str) -> Dict[str, str]:
+    """
+    Read existing name replacement table (CSV or XLSX) and return
+    a dict of src_name -> dst_name for entries that already have a translation.
+
+    Args:
+        proj_dir: Path to the project root directory.
+
+    Returns:
+        Dict mapping src_name -> dst_name (only entries with non-empty dst_name).
+    """
+    dst_names: Dict[str, str] = {}
+    csv_path = joinpath(proj_dir, "name替换表.csv")
+    xlsx_path = joinpath(proj_dir, "name替换表.xlsx")
+
+    def _find_col(header, new_name, old_name):
+        if new_name in header:
+            return header.index(new_name)
+        if old_name in header:
+            return header.index(old_name)
+        return -1
+
+    if os.path.isfile(csv_path):
+        try:
+            with open(csv_path, "r", newline="", encoding="utf-8-sig") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                if not header:
+                    return dst_names
+                src_idx = _find_col(header, "SRC_Name", "JP_Name")
+                dst_idx = _find_col(header, "DST_Name", "CN_Name")
+                if src_idx < 0 or dst_idx < 0:
+                    return dst_names
+                for row in reader:
+                    if len(row) > max(src_idx, dst_idx):
+                        src = row[src_idx].strip()
+                        dst = row[dst_idx].strip()
+                        if src and dst:
+                            dst_names[src] = dst
+        except Exception:
+            pass
+    elif os.path.isfile(xlsx_path):
+        try:
+            workbook = openpyxl.load_workbook(xlsx_path)
+            sheet = workbook.active
+            header = [cell.value for cell in sheet[1]]
+            src_idx = _find_col(header, "SRC_Name", "JP_Name")
+            dst_idx = _find_col(header, "DST_Name", "CN_Name")
+            if src_idx < 0 or dst_idx < 0:
+                return dst_names
+            for row in sheet.iter_rows(min_row=2):
+                src_val = row[src_idx].value if src_idx < len(row) else None
+                dst_val = row[dst_idx].value if dst_idx < len(row) else None
+                if src_val and dst_val:
+                    dst_names[str(src_val).strip()] = str(dst_val).strip()
+        except Exception:
+            pass
+
+    return dst_names
 
 
 def load_name_table(
@@ -47,24 +197,28 @@ def load_name_table(
                 sheet = workbook.active
                 header = [cell.value for cell in sheet[1]]
                 try:
-                    jp_name_col_idx = header.index("JP_Name")
-                    cn_name_col_idx = header.index("CN_Name")
+                    src_name_col_idx = header.index("SRC_Name")
+                    dst_name_col_idx = header.index("DST_Name")
                 except ValueError:
-                    LOGGER.warning(f"name替换表 {path} 缺少 'JP_Name' 或 'CN_Name' 列")
-                    return {}, [], False
+                    try:
+                        src_name_col_idx = header.index("JP_Name")
+                        dst_name_col_idx = header.index("CN_Name")
+                    except ValueError:
+                        LOGGER.warning(f"name替换表 {path} 缺少 'SRC_Name'/'DST_Name' (或旧版 'JP_Name'/'CN_Name') 列")
+                        return {}, [], False
 
                 for row_idx, row in enumerate(sheet.iter_rows(min_row=2), start=2):
-                    jp_name_cell = row[jp_name_col_idx]
-                    cn_name_cell = row[cn_name_col_idx]
-                    jp_name = jp_name_cell.value
-                    cn_name = cn_name_cell.value
+                    src_name_cell = row[src_name_col_idx]
+                    dst_name_cell = row[dst_name_col_idx]
+                    src_name = src_name_cell.value
+                    dst_name = dst_name_cell.value
 
-                    if jp_name is not None:
-                        jp_name_str = str(jp_name)
-                        if cn_name is None or str(cn_name).strip() == "":
-                            missing_cn_names_internal.append(jp_name_str)
+                    if src_name is not None:
+                        src_name_str = str(src_name)
+                        if dst_name is None or str(dst_name).strip() == "":
+                            missing_cn_names_internal.append(src_name_str)
                         else:
-                            name_table_internal[jp_name_str] = str(cn_name)
+                            name_table_internal[src_name_str] = str(dst_name)
                 file_loaded_successfully_internal = True
 
             elif file_extension == ".csv":
@@ -76,25 +230,29 @@ def load_name_table(
                         LOGGER.warning(f"CSV name替换表 {path} 为空或无法读取表头")
                         return {}, [], False
                     try:
-                        jp_name_col_idx = header.index("JP_Name")
-                        cn_name_col_idx = header.index("CN_Name")
+                        src_name_col_idx = header.index("SRC_Name")
+                        dst_name_col_idx = header.index("DST_Name")
                     except ValueError:
-                        LOGGER.warning(
-                            f"CSV name替换表 {path} 缺少 'JP_Name' 或 'CN_Name' 列"
-                        )
-                        return {}, [], False
+                        try:
+                            src_name_col_idx = header.index("JP_Name")
+                            dst_name_col_idx = header.index("CN_Name")
+                        except ValueError:
+                            LOGGER.warning(
+                                f"CSV name替换表 {path} 缺少 'SRC_Name'/'DST_Name' (或旧版 'JP_Name'/'CN_Name') 列"
+                            )
+                            return {}, [], False
 
                     for row_idx, row in enumerate(reader, start=2):
-                        if len(row) > max(jp_name_col_idx, cn_name_col_idx):
-                            jp_name = row[jp_name_col_idx]
-                            cn_name = row[cn_name_col_idx]
+                        if len(row) > max(src_name_col_idx, dst_name_col_idx):
+                            src_name = row[src_name_col_idx]
+                            dst_name = row[dst_name_col_idx]
 
-                            if jp_name is not None:
-                                jp_name_str = str(jp_name)
-                                if cn_name is None or str(cn_name).strip() == "":
-                                    missing_cn_names_internal.append(jp_name_str)
+                            if src_name is not None:
+                                src_name_str = str(src_name)
+                                if dst_name is None or str(dst_name).strip() == "":
+                                    missing_cn_names_internal.append(src_name_str)
                                 else:
-                                    name_table_internal[jp_name_str] = str(cn_name)
+                                    name_table_internal[src_name_str] = str(dst_name)
                         else:
                             LOGGER.warning(
                                 f"CSV name替换表 {path} 中发现格式不正确的行 (行号 {row_idx}): {row}"
@@ -125,20 +283,23 @@ def load_name_table(
     )
 
     table_base_name = os.path.basename(name_table_path)
-    # Check for missing CN_Names after the first attempt
+    # Check for missing DST_Names after the first attempt
     if file_loaded_successfully and missing_cn_names and firstime_load:
         LOGGER.warning(
             f"\n\n(这个提示只会在首次显示)\n\n'{table_base_name}' 中有name的翻译未补齐，可以现在编辑并补齐对应翻译，或以后编辑并通过刷新结果来补全name字段的翻译。\n\n配置文件中usePostDictInName, useGPTDictInName也可将译后、GPT字典用于刷写name字段。"
         )
-        print()
-        try:
-            input("按 Enter 继续，或ctrl+c暂时返回...")
-        except EOFError:
-            raise KeyboardInterrupt
-        # Second attempt to load after user edit
-        name_table, missing_cn_names, file_loaded_successfully = _load_internal(
-            name_table_path
-        )
+        if not proj_config.non_interactive:
+            print()
+            try:
+                input("按 Enter 继续，或ctrl+c暂时返回...")
+            except EOFError:
+                raise KeyboardInterrupt
+            # Second attempt to load after user edit
+            name_table, missing_cn_names, file_loaded_successfully = _load_internal(
+                name_table_path
+            )
+        else:
+            LOGGER.info("非交互模式，跳过等待用户编辑name替换表")
 
     # Log final status
     if file_loaded_successfully:
@@ -206,56 +367,60 @@ async def dump_name_table_from_chunks(
     for name, count in name_dict.items():
         LOGGER.debug(f"{name}: {count}")
 
+    # Preserve existing translations from the current name table
+    existing_dst = _load_existing_dst_names(proj_dir)
+    if existing_dst:
+        preserved = sum(1 for n in name_dict if n in existing_dst)
+        LOGGER.info(f"保留已有翻译 {preserved} 条")
+
     # Ask user for export format
-    try:
-        export_format = await inquirer.select(
-            message="请选择导出 name替换表 的格式 (这个替换表可以刷写结果文件中的name字段):",
-            choices=[
-                Choice(value="csv", name="CSV (默认)"),
-                Choice(value="xlsx", name="Excel (.xlsx)"),
-            ],
-            default="csv",
-        ).execute_async()
-    except Exception as e:
-        LOGGER.warning(f"无法获取用户输入，将默认使用 CSV 格式: {e}")
-        export_format = "csv"  # Default to csv if inquirer fails
+    if proj_config.non_interactive:
+        LOGGER.info("非交互模式，自动使用 CSV 格式导出name替换表")
+        export_format = "csv"
+    else:
+        try:
+            export_format = await inquirer.select(
+                message="请选择导出 name替换表 的格式 (这个替换表可以刷写结果文件中的name字段):",
+                choices=[
+                    Choice(value="csv", name="CSV (默认)"),
+                    Choice(value="xlsx", name="Excel (.xlsx)"),
+                ],
+                default="csv",
+            ).execute_async()
+        except Exception as e:
+            LOGGER.warning(f"无法获取用户输入，将默认使用 CSV 格式: {e}")
+            export_format = "csv"  # Default to csv if inquirer fails
 
     file_extension = f".{export_format}"
     output_path = joinpath(proj_dir, f"name替换表{file_extension}")
 
     try:
-        if export_format == "xlsx":
+        if export_format == "csv":
+            write_name_table_csv(output_path, name_dict, existing_dst)
+            LOGGER.info(
+                f"name已保存到'{output_path}' (CSV格式)，填入DST_Name后可用于后续翻译name字段。"
+            )
+        elif export_format == "xlsx":
             workbook = openpyxl.Workbook()
             sheet = workbook.active
             sheet.title = "NameTable"
 
             # Write header
-            sheet["A1"] = "JP_Name"
-            sheet["B1"] = "CN_Name"
+            sheet["A1"] = "SRC_Name"
+            sheet["B1"] = "DST_Name"
             sheet["C1"] = "Count"
 
             # Write data
             row_num = 2
             for name, count in name_dict.items():
                 sheet[f"A{row_num}"] = name
-                sheet[f"B{row_num}"] = ""
+                sheet[f"B{row_num}"] = existing_dst.get(name, "")
                 sheet[f"C{row_num}"] = count
                 row_num += 1
 
             workbook.save(output_path)
             LOGGER.info(
-                f"name已保存到'{output_path}' (Excel格式)，填入CN_Name后可用于后续翻译name字段。"
-            )
-        elif export_format == "csv":
-            with open(output_path, "w", newline="", encoding="utf-8-sig") as csvfile:
-                writer = csv.writer(csvfile)
-                # Write header
-                writer.writerow(["JP_Name", "CN_Name", "Count"])
-                # Write data
-                for name, count in name_dict.items():
-                    writer.writerow([name, "", count])
-            LOGGER.info(
-                f"name已保存到'{output_path}' (CSV格式)，填入CN_Name后可用于后续翻译name字段。"
+                f"name已保存到'{output_path}' (Excel格式)，填入DST_Name后可用于后续翻译name字段。"
             )
 
     except Exception as e:

@@ -9,7 +9,7 @@ from GalTransl.Cache import save_transCache_to_json
 from GalTransl.Dictionary import CGptDict
 from GalTransl.Utils import find_most_repeated_substring
 from GalTransl.Backend.BaseTranslate import BaseTranslate
-from GalTransl.COpenAI import COpenAIToken
+from GalTransl.COpenAI import COpenAIToken, normalize_sakura_endpoints
 from GalTransl.Backend.Prompts import (
     Sakura_TRANS_PROMPT,
     Sakura_SYSTEM_PROMPT,
@@ -19,7 +19,7 @@ from GalTransl.Backend.Prompts import (
     GalTransl_TRANS_PROMPT,
     GalTransl_TRANS_PROMPT_V3,
 )
-from GalTransl import transl_counter
+from GalTransl.TerminalOutput import should_print_translation_logs
 
 
 class CSakuraTranslate(BaseTranslate):
@@ -67,6 +67,7 @@ class CSakuraTranslate(BaseTranslate):
         if "galtransl" in eng_type:
             self.system_prompt = GalTransl_SYSTEM_PROMPT
             self.trans_prompt = GalTransl_TRANS_PROMPT_V3
+        self._apply_internal_prompt_template_overrides()
         self.init_chatbot(eng_type=eng_type, config=config)  # 模型初始化
         self._set_temp_type("precise")
 
@@ -77,37 +78,50 @@ class CSakuraTranslate(BaseTranslate):
         import httpx
         import re
 
-        self.tokenStrategy =  "random"
         backendSpecific = config.projectConfig["backendSpecific"]
         section_name = "SakuraLLM" if "SakuraLLM" in backendSpecific else "Sakura"
-        model_name = config.getBackendConfigSection(section_name).get(
-            "rewriteModelName","sakura"
+        backend_cfg = config.getBackendConfigSection(section_name)
+
+        self.tokenStrategy = backend_cfg.get("tokenStrategy", "random")
+        model_name = backend_cfg.get(
+            "rewriteModelName", "sakura"
         )
         self.apiErrorWait = 0
         self.model_name = model_name if model_name else "sakura"
 
-        endpoint = self.endpoint
-        endpoint = endpoint[:-1] if endpoint.endswith("/") else endpoint
-        base_path = "/v1" if not re.search(r"/v\d+$", endpoint) else ""
-        self.stream = True
-        if "sakura-share" in endpoint:
-            self.stream = False
-
-        if self.proxyProvider:
-            self.proxy = self.proxyProvider.getProxy()
-            client = httpx.AsyncClient(proxy=self.proxy.addr if self.proxy else None,trust_env=False)
-        else:
-            client = httpx.AsyncClient(trust_env=False)
-
-        chatbot = AsyncOpenAI(
-            api_key="sk-sakura",
-            base_url=f"{endpoint}{base_path}",
-            max_retries=0,
-            http_client=client,
+        cleaned_endpoints = normalize_sakura_endpoints(
+            backend_cfg,
+            self.endpoint if hasattr(self, "endpoint") else "",
         )
-        token=COpenAIToken("sk-sakura",f"{endpoint}{base_path}",model_name,True)
-        self.client_list=[]
-        self.client_list.append((chatbot,token))
+
+        self.client_list = []
+        for endpoint in cleaned_endpoints:
+            endpoint_url = endpoint[:-1] if endpoint.endswith("/") else endpoint
+            base_path = "/v1" if not re.search(r"/v\d+$", endpoint_url) else ""
+            
+            ep_stream = True
+            if "sakura-share" in endpoint_url:
+                ep_stream = False
+
+            if self.proxyProvider:
+                from GalTransl.ConfigHelper import build_httpx_proxy_kwargs
+                self.proxy = self.proxyProvider.getProxy()
+                proxy_kwargs = build_httpx_proxy_kwargs(self.proxy.addr if self.proxy else None)
+                client = httpx.AsyncClient(trust_env=False, **proxy_kwargs)
+            else:
+                client = httpx.AsyncClient(trust_env=False)
+
+            chatbot = AsyncOpenAI(
+                api_key="sk-sakura",
+                base_url=f"{endpoint_url}{base_path}",
+                max_retries=0,
+                http_client=client,
+            )
+            token = COpenAIToken("sk-sakura", f"{endpoint_url}{base_path}", self.model_name, ep_stream)
+            self.client_list.append((chatbot, token))
+
+        if self.client_list:
+            self.stream = self.client_list[0][1].stream
 
     def clean_up(self):
         self.pj_config.endpointQueue.put_nowait(self.endpoint)
@@ -117,13 +131,9 @@ class CSakuraTranslate(BaseTranslate):
         max_repeat = 0
         retry_count = 0
         line_lens = []
-        start_idx: int=trans_list[0].index
-        end_idx: int=trans_list[-1].index
-        idx_tip=""
-        if start_idx!=end_idx:
-            idx_tip=f"{start_idx}~{end_idx}"
+        idx_tip = self._build_idx_tip(trans_list)
         for i, trans in enumerate(trans_list):
-            tmp_text = trans.post_jp.replace("\r\n", "\\n").replace("\n", "\\n")
+            tmp_text = trans.post_src.replace("\r\n", "\\n").replace("\n", "\\n")
             speaker_name=trans.get_speaker_name()
 
             if speaker_name != "":
@@ -158,7 +168,8 @@ class CSakuraTranslate(BaseTranslate):
         messages.append({"role": "user", "content": prompt_req})
 
         while True:  # 一直循环，直到得到数据
-            if self.pj_config.active_workers == 1:
+            self._check_stop_requested()
+            if should_print_translation_logs(self.pj_config) and self.pj_config.active_workers == 1:
                 print(f"-> 字典输入: \n{gptdict}")
                 print(f"-> 翻译输入: \n{input_str}")
                 print("-> 输出: ")
@@ -170,7 +181,6 @@ class CSakuraTranslate(BaseTranslate):
                 frequency_penalty=self.frequency_penalty,
                 top_p=self.top_p,
                 max_tokens=len(input_str) * 2,
-                stream=self.stream,
             )
 
             result_list = resp.strip("\n").split("\n")
@@ -189,7 +199,7 @@ class CSakuraTranslate(BaseTranslate):
                     break
                 i += 1
                 # 本行输出不应为空
-                if trans_list[i].post_jp != "" and line == "":
+                if trans_list[i].post_src != "" and line == "":
                     error_message = f"第{i+1}句空白"
                     error_flag = True
                     break
@@ -205,35 +215,48 @@ class CSakuraTranslate(BaseTranslate):
                 # 统一简繁体
                 line = self.opencc.convert(line)
                 # 还原换行
-                if "\r\n" in trans_list[i].post_jp:
+                if "\r\n" in trans_list[i].post_src:
                     line = line.replace("\\n", "\r\n")
-                elif "\n" in trans_list[i].post_jp:
+                elif "\n" in trans_list[i].post_src:
                     line = line.replace("\\n", "\n")
 
                 # fix trick
                 if line.startswith("："):
                     line = line[1:]
 
-                trans_list[i].pre_zh = line
-                trans_list[i].post_zh = line
+                trans_list[i].pre_dst = line
+                trans_list[i].post_dst = line
                 trans_list[i].trans_by = self.eng_type
                 result_trans_list.append(trans_list[i])
 
             if error_flag:
-                transl_counter["error_count"] += 1
-                LOGGER.debug(f"错误计数：{transl_counter['error_count']}")
-                LOGGER.debug(f"翻译句数：{transl_counter['tran_count']}")
+                try:
+                    from GalTransl.server import record_runtime_error
+                    record_runtime_error(
+                        getattr(self.pj_config, "runtime_project_dir", self.pj_config.getProjectDir()),
+                        kind="parse",
+                        message=error_message,
+                        filename=filename,
+                        index_range=idx_tip,
+                        retry_count=retry_count + 1,
+                        model=getattr(token, "model_name", self.model_name),
+                        level="warning",
+                    )
+                except Exception:
+                    pass
 
                 if self.skipRetry:
                     self.reset_conversation()
                     LOGGER.warning(f"[{filename}:{idx_tip}]解析出错但跳过本轮翻译")
-                    i = 0 if i < 0 else i
-                    while i < len(trans_list):
-                        trans_list[i].pre_zh = "Failed translation"
-                        trans_list[i].post_zh = "Failed translation"
-                        trans_list[i].trans_by = f"{self.eng_type}(Failed)"
-                        result_trans_list.append(trans_list[i])
-                        i = i + 1
+                    i = self._append_parse_failure_fallback_results(
+                        trans_list,
+                        0 if i < 0 else i,
+                        result_trans_list,
+                        self.eng_type,
+                        proofread=False,
+                        translate_failed_prefix="(Failed)",
+                        translate_problem_message="翻译失败",
+                    )
                 else:
                     LOGGER.warning(f"[{filename}:{idx_tip}]错误的输出：{error_message}")
 
@@ -255,13 +278,15 @@ class CSakuraTranslate(BaseTranslate):
                         LOGGER.error(
                             f"[{filename}:{idx_tip}]单句循环重试{retry_count}次出错，填充原文"
                         )
-                        i = 0 if i < 0 else i
-                        while i < len(trans_list):
-                            trans_list[i].pre_zh = "(Failed)"+trans_list[i].post_jp
-                            trans_list[i].post_zh = "(Failed)"+trans_list[i].post_jp
-                            trans_list[i].trans_by = f"{self.eng_type}(Failed)"
-                            result_trans_list.append(trans_list[i])
-                            i = i + 1
+                        i = self._append_parse_failure_fallback_results(
+                            trans_list,
+                            0 if i < 0 else i,
+                            result_trans_list,
+                            self.eng_type,
+                            proofread=False,
+                            translate_failed_prefix="(Failed)",
+                            translate_problem_message="翻译失败",
+                        )
                         return i, result_trans_list
                     # 2次重试则重置会话
                     elif retry_count % 2 == 0:
@@ -269,6 +294,7 @@ class CSakuraTranslate(BaseTranslate):
                         LOGGER.warning(
                             f"[{filename}:{idx_tip}]单句循环重试{retry_count}次出错，重置会话"
                         )
+                        self._check_stop_requested()
                         continue
                     continue
             else:
@@ -303,9 +329,14 @@ class CSakuraTranslate(BaseTranslate):
         transl_step_count = 0
 
         while i < len_trans_list:
+            self._check_stop_requested()
             # await asyncio.sleep(1)
 
-            trans_list_split = translist_unhit[i : i + num_pre_request]
+            effective_num_pre_request = self._get_effective_num_per_request(
+                num_pre_request,
+                proofread=proofread,
+            )
+            trans_list_split = translist_unhit[i : i + effective_num_pre_request]
             dic_prompt = (
                 gpt_dic.gen_prompt(trans_list_split, type="sakura")
                 if gpt_dic != None
@@ -314,20 +345,38 @@ class CSakuraTranslate(BaseTranslate):
 
             num, trans_result = await self.translate(trans_list_split, dic_prompt, filename)
 
-            if self.transl_dropout > 0 and num == num_pre_request:
+            if self.transl_dropout > 0 and num == effective_num_pre_request:
                 if self.transl_dropout < num:
                     num -= self.transl_dropout
                     trans_result = trans_result[:num]
 
             i += num if num > 0 else 0
-            transl_counter["tran_count"] += num
             self.pj_config.bar(num)
+            self._update_dynamic_num_per_request(
+                requested_count=len(trans_list_split),
+                completed_count=max(0, num),
+                trans_result=trans_result,
+                filename=filename,
+                proofread=proofread,
+            )
             transl_step_count += 1
             if transl_step_count >= self.save_steps:
-                await save_transCache_to_json(trans_list, cache_file_path)
+                await save_transCache_to_json(
+                    trans_result,
+                    cache_file_path,
+                    project_dir=getattr(
+                        self.pj_config,
+                        "runtime_project_dir",
+                        self.pj_config.getProjectDir(),
+                    ),
+                )
                 transl_step_count = 0
 
             trans_result_list += trans_result
+
+            for trans in trans_result:
+                if trans.pre_dst and "(Failed)" not in trans.pre_dst and "(翻译失败)" not in trans.pre_dst:
+                    self._record_runtime_success(filename, trans)
 
             LOGGER.info("".join([repr(tran) for tran in trans_result]))
             LOGGER.info(
@@ -360,30 +409,11 @@ class CSakuraTranslate(BaseTranslate):
         self.frequency_penalty = frequency_penalty
         self.top_p = top_p
 
-    def restore_context(self, translist_unhit: CTransList, num_pre_request: int,filename=""):
-        if translist_unhit[0].prev_tran == None:
-            return
-        tmp_context = []
-        num_count = 0
-        current_tran = translist_unhit[0].prev_tran
-        while current_tran != None:
-            if current_tran.pre_zh == "" or "(Failed)" in current_tran.pre_zh:
-                current_tran = current_tran.prev_tran
-                continue
-            speaker_name=current_tran.get_speaker_name()
-            if speaker_name != "":
-                tmp_text = f"{speaker_name}「{current_tran.pre_zh}」"
-            else:
-                tmp_text = f"{current_tran.pre_zh}"
-            tmp_context.append(tmp_text)
-            num_count += 1
-            if num_count >= num_pre_request:
-                break
-            current_tran = current_tran.prev_tran
-
-        tmp_context.reverse()
-        json_lines = "\n".join(tmp_context)
-        self.last_translations[filename] = json_lines
+    def _format_restore_context_line(self, current_tran: CSentense) -> str:
+        speaker_name = current_tran.get_speaker_name()
+        if speaker_name != "":
+            return f"{speaker_name}「{current_tran.pre_dst}」"
+        return f"{current_tran.pre_dst}"
 
 
     def check_degen_in_process(self, cn: str = ""):

@@ -3,17 +3,41 @@ CloseAI related classes
 """
 
 import asyncio
-from asyncio import gather
-from alive_progress import alive_bar
 from time import time
 from GalTransl import LOGGER, TRANSLATOR_DEFAULT_ENGINE
-from GalTransl.ConfigHelper import CProjectConfig, CProxy
+from GalTransl.ConfigHelper import CProjectConfig, CProxy, build_httpx_sync_proxy_kwargs
 from typing import Optional, Tuple
 from random import choice
 from asyncio import Queue
 from openai import OpenAI
 import re
 import httpx
+from GalTransl.TerminalOutput import should_print_translation_logs, terminal_progress
+
+
+def normalize_sakura_endpoints(section: dict, fallback_endpoint: str = "") -> list[str]:
+    raw_endpoints = section.get("endpoints", section.get("endpoint", []))
+    if isinstance(raw_endpoints, str):
+        raw_endpoints = [raw_endpoints]
+    elif not isinstance(raw_endpoints, list):
+        raw_endpoints = []
+
+    endpoints = []
+    for endpoint in raw_endpoints:
+        if not isinstance(endpoint, str):
+            continue
+        endpoint = endpoint.strip()
+        if endpoint and endpoint not in endpoints:
+            endpoints.append(endpoint)
+
+    fallback_endpoint = fallback_endpoint.strip() if isinstance(fallback_endpoint, str) else ""
+    if not endpoints and fallback_endpoint:
+        endpoints.append(fallback_endpoint)
+
+    if not endpoints:
+        endpoints.append("http://127.0.0.1:8501")
+
+    return endpoints
 
 
 class COpenAIToken:
@@ -55,6 +79,7 @@ class COpenAITokenPool:
     def __init__(self, config: CProjectConfig, eng_type: str) -> None:
 
         token_list: list[COpenAIToken] = []
+        self.pj_config = config
         defaultEndpoint = "https://api.openai.com"
         section_name = "OpenAI-Compatible"
         self.tokens: list[tuple[bool, COpenAIToken]] = []
@@ -63,7 +88,7 @@ class COpenAITokenPool:
         )
         self.stream = config.getBackendConfigSection(section_name).get("stream", False)
         self.timeout = config.getBackendConfigSection(section_name).get(
-            "apiTimeout", 60
+            "apiTimeout", 300
         )
 
         if all_tokens := config.getBackendConfigSection(section_name).get("tokens"):
@@ -106,24 +131,79 @@ class COpenAITokenPool:
         for token in token_list:
             self.tokens.append((True, token))
 
+    def _raise_if_stop_requested(self) -> None:
+        stop_event = getattr(self.pj_config, "stop_event", None)
+        if stop_event is not None and stop_event.is_set():
+            from GalTransl.Service import JobCancelledError
+
+            raise JobCancelledError()
+
+    def _record_runtime_error(
+        self,
+        *,
+        kind: str,
+        message: str,
+        model: str = "",
+        level: str = "warning",
+    ) -> None:
+        try:
+            from GalTransl.server import record_runtime_error
+
+            record_runtime_error(
+                getattr(
+                    self.pj_config,
+                    "runtime_project_dir",
+                    self.pj_config.getProjectDir(),
+                ),
+                kind=kind,
+                message=message,
+                model=model,
+                level=level,
+            )
+        except Exception:
+            return
+
+    async def _interruptible_sleep(self, seconds: float) -> None:
+        remaining = float(seconds)
+        while remaining > 0:
+            self._raise_if_stop_requested()
+            step = min(remaining, 0.5)
+            await asyncio.sleep(step)
+            remaining -= step
+
     async def _isTokenAvailable(
         self, token: COpenAIToken, proxy: CProxy = None
     ) -> Tuple[bool, COpenAIToken]:
+        return await asyncio.to_thread(self._isTokenAvailable_sync, token, proxy)
+
+    def _isTokenAvailable_sync(
+        self, token: COpenAIToken, proxy: CProxy = None
+    ) -> Tuple[bool, COpenAIToken]:
+        st = time()
 
         try:
-            st = time()
             LOGGER.info(f"API URL: {token.domain}/chat/completions")
+            proxy_kwargs = build_httpx_sync_proxy_kwargs(proxy.addr if proxy else None)
             client = OpenAI(
                 api_key=token.token,
                 base_url=token.domain,
-                http_client=httpx.Client(proxy=proxy.addr if proxy else None),
+                http_client=httpx.Client(**proxy_kwargs) if proxy_kwargs else None,
             )
-            response = client.chat.completions.create(
+            # 可用性检测只关心"能否成功返回一个响应"，
+            # 用极简 prompt + max_tokens=1 避免模型做无谓生成，大幅缩短检测耗时。
+            create_kwargs = dict(
                 model=token.model_name,
-                messages=[{"role": "user", "content": "JUST echo OK"}],
+                messages=[{"role": "user", "content": "1+1="}],
                 timeout=self.timeout,
                 stream=token.stream,
+                max_tokens=1,
             )
+            try:
+                response = client.chat.completions.create(**create_kwargs)
+            except TypeError:
+                # 少数兼容实现不接受 max_tokens 参数，回退一次
+                create_kwargs.pop("max_tokens", None)
+                response = client.chat.completions.create(**create_kwargs)
             if token.stream == False:
                 if len(response.choices) > 0:
                     return True, token
@@ -138,7 +218,21 @@ class COpenAITokenPool:
                 # 如果流响应为空，返回False
                 return False, token
         except Exception as e:
-            LOGGER.error(e)
+            exception_text = str(e).strip()
+            if exception_text:
+                message = f"{type(e).__name__}: {exception_text}"
+            else:
+                message = type(e).__name__
+            runtime_message = (
+                f"检查模型可用性请求失败 [{token.maskToken()}]: {message}"
+            )
+            LOGGER.error(runtime_message)
+            self._record_runtime_error(
+                kind="api",
+                message=runtime_message,
+                model=getattr(token, "model_name", ""),
+                level="warning",
+            )
 
 
             LOGGER.debug(
@@ -154,9 +248,11 @@ class COpenAITokenPool:
         self,
         token: COpenAIToken,
         proxy: CProxy = None,
-        max_retries: int = 3,
+        max_retries: int = 2,
     ) -> Tuple[bool, COpenAIToken]:
+        is_available = False
         for retry_count in range(max_retries):
+            self._raise_if_stop_requested()
             is_available, token = await self._isTokenAvailable(token, proxy)
             if is_available:
                 self.bar()
@@ -164,7 +260,7 @@ class COpenAITokenPool:
             else:
                 # wait for some time before retrying, you can add some delay here
                 LOGGER.warning(f"可用性检查失败，正在重试 {retry_count + 1} 次...")
-                await asyncio.sleep(1)
+                await self._interruptible_sleep(0.3)
 
         # If all retries fail, return the result from the last attempt
         self.bar()
@@ -176,21 +272,56 @@ class COpenAITokenPool:
         """
         检测令牌有效性
         """
-        fs = []
-        with alive_bar(total=len(self.tokens), title="Testing Key……") as bar:
+        section_name = "OpenAI-Compatible"
+        raw_concurrency = self.pj_config.getBackendConfigSection(section_name).get(
+            "checkAvailableConcurrency", 4
+        )
+        try:
+            check_concurrency = max(1, min(16, int(raw_concurrency)))
+        except (TypeError, ValueError):
+            check_concurrency = 4
+        check_semaphore = asyncio.Semaphore(check_concurrency)
+
+        async def check_one_token(token: COpenAIToken) -> Tuple[bool, COpenAIToken]:
+            async with check_semaphore:
+                self._raise_if_stop_requested()
+                return await self._check_token_availability_with_retry(
+                    token, proxy if proxy else None
+                )
+
+        tasks = []
+        with terminal_progress(
+            should_print_translation_logs(self.pj_config),
+            total=len(self.tokens),
+            title="Testing Key……",
+        ) as bar:
             self.bar = bar
             index = 0
             for _, token in self.tokens:
+                self._raise_if_stop_requested()
                 index += 1
                 LOGGER.info(
                     f"Testing key{index}---{token.maskToken()}---{token.model_name}"
                 )
-                fs.append(
-                    self._check_token_availability_with_retry(
-                        token, proxy if proxy else None
+                tasks.append(asyncio.create_task(check_one_token(token)))
+            result: list[tuple[bool, COpenAIToken]] = []
+            pending = set(tasks)
+            try:
+                while pending:
+                    self._raise_if_stop_requested()
+                    done, pending = await asyncio.wait(
+                        pending,
+                        timeout=0.5,
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
-                )
-            result: list[tuple[bool, COpenAIToken]] = await gather(*fs)
+                    for done_task in done:
+                        result.append(await done_task)
+            except BaseException:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
 
         # replace list with new one
         newList: list[tuple[bool, COpenAIToken]] = []
@@ -210,11 +341,8 @@ class COpenAITokenPool:
         """
         报告令牌无效
         """
-        for id, tokenPair in enumerate(self.tokens):
-            if tokenPair[1] == token:
-                self.tokens.pop(id)
-            pass
-        pass
+        # 用过滤替代迭代中 pop，避免并发修改列表
+        self.tokens = [pair for pair in self.tokens if pair[1] != token]
 
     def getToken(self) -> COpenAIToken:
         """
@@ -257,10 +385,7 @@ async def init_sakura_endpoint_queue(projectConfig: CProjectConfig) -> Optional[
     workersPerProject = projectConfig.getKey("workersPerProject") or 1
     sakura_endpoint_queue = asyncio.Queue()
     section_name = "SakuraLLM"
-    if "endpoints" in projectConfig.getBackendConfigSection(section_name):
-        endpoints = projectConfig.getBackendConfigSection(section_name)["endpoints"]
-    else:
-        endpoints = [projectConfig.getBackendConfigSection(section_name)["endpoint"]]
+    endpoints = normalize_sakura_endpoints(projectConfig.getBackendConfigSection(section_name))
     repeated = (workersPerProject + len(endpoints) - 1) // len(endpoints)
     for _ in range(repeated):
         for endpoint in endpoints:

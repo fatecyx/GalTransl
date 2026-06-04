@@ -51,7 +51,7 @@ PROGRAM_SPLASH4 = r"""
 ALL_BANNERS = [PROGRAM_SPLASH1, PROGRAM_SPLASH2, PROGRAM_SPLASH3, PROGRAM_SPLASH4]
 PROGRAM_SPLASH = ALL_BANNERS[localtime().tm_mday % 4]
 
-GALTRANSL_VERSION = "6.8.0"
+GALTRANSL_VERSION = "7.3.0"
 AUTHOR = "xd2333"
 CONTRIBUTORS = "ryank231231, PiDanShouRouZhouXD, Noriverwater, Isotr0py, adsf0427, pipixia244, gulaodeng, sakura-umi, lifegpc, natsumerinchan, szyzbg"
 
@@ -61,27 +61,27 @@ OUTPUT_FOLDERNAME = "gt_output"
 CACHE_FOLDERNAME = "transl_cache"
 TRANSLATOR_SUPPORTED = {
     "ForGal-json": {
-        "zh-cn": "(OAI/Claude/Deepseek)(原GPT4)翻译Gal时使用，json格式输入，兼容性好。默认gpt-4模型",
-        "en": "(OAI/Claude/Deepseek)Customized template for Gal translation, json input. Default model: gpt-4.1"
+        "zh-cn": "(openai接口)翻译Gal时使用，json格式输入，兼容性好。",
+        "en": "Customized template for Gal translation, json input. "
     },
     "ForNovel": {
-        "zh-cn": "(OAI/Claude/Deepseek)翻译轻小说等其他文本时使用，区别是输入不带name字段。默认deepseek-chat模型",
-        "en": " (OAI/Claude/Deepseek)Customized template for Novel translation. Default model: deepseek-chat"
+        "zh-cn": "(openai接口)翻译轻小说等其他文本时使用，区别是输入不带name字段。",
+        "en": " Customized template for Novel translation. "
     },
     "ForGal-tsv": {
-        "zh-cn": "(OAI/Claude/Deepseek)翻译Gal时使用，tsv格式输入，省token。默认deepseek-chat模型",
-        "en": " (OAI/Claude/Deepseek)Customized template for Gal translation,save tokens. Default model: deepseek-chat"
+        "zh-cn": "(openai接口)翻译Gal时使用，tsv格式输入，省token。",
+        "en": " Customized template for Gal translation,save tokens. "
     },
     "galtransl-v3": {
-        "zh-cn": "为翻译Gal基于Sakura进一步优化的本地模型",
+        "zh-cn": "(sakura接口)为翻译Gal基于Sakura进一步优化的本地模型",
         "en": "Further optimized local small model based on Sakura for Gal translation"
     },
     "sakura-v1.0": {
-        "zh-cn": "（适用sakura-v1.0）为翻译轻小说/Gal开展大规模训练的本地模型，具有多个型号和大小",
+        "zh-cn": "(sakura接口)为翻译轻小说/Gal开展大规模训练的本地模型，具有多个型号和大小",
         "en": "(For v1.0 prompt) Locally trained model for light novel/Gal translation, available in multiple sizes"
     },
     "GenDic": {
-        "zh-cn": "自动化构建GPT字典，需要接大模型如Deepseek-V3",
+        "zh-cn": "(openai接口)自动化构建GPT字典，需要接大模型如Deepseek-V3",
         "en": "Automatically build GPT dictionary, requires a large model, recommended GPT4/Claude-3/Deepseek-V3"
     },
     "rebuildr": {
@@ -105,12 +105,11 @@ TRANSLATOR_DEFAULT_ENGINE = {
     "ForGal-tsv": "deepseek-chat",
     "ForNovel": "deepseek-chat",
     "ForGal-json": "gpt-4.1",
-    "r1": "deepseek-reasoner",
     "sakura-v1.0": "sakura-7b-qwen2.5-v1.0",
     "galtransl-v3": "Sakura-GalTransl-7B-v3",
     "GenDic": "deepseek-chat",
 }
-NEED_OpenAITokenPool=["ForGal-json", "r1", "ForGal-tsv","ForNovel","GenDic"]
+NEED_OpenAITokenPool=["ForGal-json", "ForGal-tsv", "ForNovel", "GenDic"]
 LANG_SUPPORTED = {
     "zh-cn": "Simplified_Chinese",
     "zh-tw": "Traditional_Chinese",
@@ -140,4 +139,3 @@ new_version = []
 update_thread = threading.Thread(target=check_for_tool_updates, args=(new_version,))
 update_thread.start()
 
-transl_counter = {"tran_count": 0, "error_count": 0}

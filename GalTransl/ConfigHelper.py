@@ -12,6 +12,8 @@ from GalTransl import (
 from GalTransl.Dictionary import CGptDict, CNormalDic
 from asyncio import gather
 from tenacity import retry, stop_after_attempt, wait_fixed
+import httpx
+import inspect
 from httpx import AsyncClient, TimeoutException
 from time import time
 from typing import Optional
@@ -20,6 +22,59 @@ from yaml import safe_load
 from os import path, sep
 from enum import Enum
 from importlib.metadata import version
+
+
+def build_httpx_proxy_kwargs(proxy_addr: Optional[str]) -> dict:
+    """根据当前安装的 httpx 版本，返回与 `httpx.AsyncClient` 兼容的代理参数。
+
+    - httpx < 0.26: 仅支持 `proxies=`
+    - 0.26 <= httpx < 0.28: 同时支持 `proxy=` 与 `proxies=`
+    - httpx >= 0.28: 仅支持 `proxy=`
+    """
+    if not proxy_addr:
+        return {}
+    try:
+        params = inspect.signature(httpx.AsyncClient.__init__).parameters
+    except (TypeError, ValueError):
+        params = {}
+    if "proxy" in params:
+        return {"proxy": proxy_addr}
+    if "proxies" in params:
+        return {"proxies": proxy_addr}
+    # 兜底：通过 mounts 指定代理传输层
+    return {"mounts": {"all://": httpx.AsyncHTTPTransport(proxy=proxy_addr)}}
+
+
+def build_httpx_sync_proxy_kwargs(proxy_addr: Optional[str]) -> dict:
+    """同 `build_httpx_proxy_kwargs`，但用于 `httpx.Client`。"""
+    if not proxy_addr:
+        return {}
+    try:
+        params = inspect.signature(httpx.Client.__init__).parameters
+    except (TypeError, ValueError):
+        params = {}
+    if "proxy" in params:
+        return {"proxy": proxy_addr}
+    if "proxies" in params:
+        return {"proxies": proxy_addr}
+    return {"mounts": {"all://": httpx.HTTPTransport(proxy=proxy_addr)}}
+
+
+def has_usable_proxy_config(proxy_cfg: Optional[dict]) -> bool:
+    if not isinstance(proxy_cfg, dict):
+        return False
+    if not bool(proxy_cfg.get("enableProxy", False)):
+        return False
+    proxies = proxy_cfg.get("proxies", [])
+    if not isinstance(proxies, list):
+        return False
+    for item in proxies:
+        if not isinstance(item, dict):
+            continue
+        address = str(item.get("address", "")).strip()
+        if address:
+            return True
+    return False
 
 
 class CProxy:
@@ -53,6 +108,7 @@ class CProblemType(Enum):
     比日文长严格 = 9
     语言不通 = 10
     缺控制符 = 11
+    独白男他 = 12
 
 
 class CProjectConfig:
@@ -75,9 +131,7 @@ class CProjectConfig:
         self.keyValues = dict()
         for k, v in self.projectConfig["common"].items():
             self.keyValues[k] = v
-        self.keyValues["internals.enableProxy"] = self.projectConfig["proxy"][
-            "enableProxy"
-        ]
+        self.refreshProxyEnabledFlag()
         LOGGER.debug(
             "inputPath: %s, outputPath: %s, cachePath: %s,keyValues: %s",
             self.inputPath,
@@ -100,6 +154,9 @@ class CProjectConfig:
         self.input_splitter = None  # 输入分割器
         self.active_workers: int=0
         self.target_lang=""
+        self.translation_guideline=""
+        self.non_interactive: bool = False  # 非交互模式（前端启动时为True）
+        self.runtime_project_dir: str = projectPath
         
 
     def getProjectConfig(self) -> dict:
@@ -143,7 +200,7 @@ class CProjectConfig:
         return lbSymbol
 
     def getProxyConfigSection(self) -> dict:
-        return self.projectConfig["proxy"]["proxies"]
+        return self.projectConfig.get("proxy", {}).get("proxies", [])
 
     def getBackendConfigSection(self, backendName: str) -> dict:
         """
@@ -184,13 +241,23 @@ class CProjectConfig:
             return {}
         return self.projectConfig["problemAnalyze"]["arinashiDict"]
 
+    def refreshProxyEnabledFlag(self) -> None:
+        self.keyValues["internals.enableProxy"] = has_usable_proxy_config(
+            self.projectConfig.get("proxy", {})
+        )
+
 
 class CProxyPool:
     def __init__(self, config: CProjectConfig) -> None:
         self.proxies: list[tuple[bool, CProxy]] = []
         for i in config.getProxyConfigSection():
+            if not isinstance(i, dict):
+                continue
+            address = str(i.get("address", "")).strip()
+            if not address:
+                continue
             self.proxies.append(
-                (False, CProxy(i["address"], i.get("username", i.get("password"))))
+                (False, CProxy(address, i.get("username"), i.get("password")))
             )
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
@@ -200,7 +267,7 @@ class CProxyPool:
         try:
             st = time()
             LOGGER.debug("start testing proxy %s", proxy.addr)
-            async with AsyncClient(proxy=proxy.addr) as client:
+            async with AsyncClient(**build_httpx_proxy_kwargs(proxy.addr)) as client:
                 response = await client.get(test_address)
                 if response.status_code != 204:
                     LOGGER.debug(
