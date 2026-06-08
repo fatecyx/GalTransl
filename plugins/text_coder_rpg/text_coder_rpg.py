@@ -73,16 +73,20 @@ class text_coder_rpg(GTextPlugin):
         self.pname = plugin_conf["Core"].get("Name", "")
         settings = plugin_conf["Settings"]
 
-        self.替换rpg变量 = settings.get("替换rpg变量", True)
+        self.替换颜色代码 = settings.get("替换颜色代码", True)
+        self.替换ruby注音 = settings.get("替换ruby注音", True)
+        self.替换其他控制符 = settings.get("替换其他控制符", True)
         self.检查脚本变量 = settings.get("检查脚本变量", True)
         self.检查中括号内容一致 = settings.get("检查中括号内容一致", True)
         self.主人公变量 = settings.get("主人公变量", None)
 
         LOGGER.info(f"[{self.pname}] CheckBrackets·启动！")
-        LOGGER.info(f"[{self.pname}] 替换rpg变量:{settings.get('替换rpg变量', True)}")
-        LOGGER.info(f"[{self.pname}] 检查脚本变量:{settings.get('检查脚本变量', True)}")
-        LOGGER.info(f"[{self.pname}] 检查中括号内容一致:{settings.get('检查中括号内容一致', True)}")
-        LOGGER.info(f"[{self.pname}] 主人公变量:{settings.get('主人公变量', None)}")
+        LOGGER.info(f"[{self.pname}] 替换颜色代码:{self.替换颜色代码}")
+        LOGGER.info(f"[{self.pname}] 替换ruby注音:{self.替换ruby注音}")
+        LOGGER.info(f"[{self.pname}] 替换其他控制符:{self.替换其他控制符}")
+        LOGGER.info(f"[{self.pname}] 检查脚本变量:{self.检查脚本变量}")
+        LOGGER.info(f"[{self.pname}] 检查中括号内容一致:{self.检查中括号内容一致}")
+        LOGGER.info(f"[{self.pname}] 主人公变量:{self.主人公变量}")
 
         code_pattern = (
                 self.CODE_PATTERN_NON_EN +
@@ -254,54 +258,50 @@ class text_coder_rpg(GTextPlugin):
         在post_jp没有被去除对话框和字典替换之前的处理，如果这是第一个插件的话post_jp=原始日文。
         :param tran: The CSentense to be processed.
         :return: The modified CSentense."""
-        tran.plugin_used[self.pname] = {'src': tran.post_jp}
-
+        # 1. 替换主人公变量
         if self.主人公变量:
             tran.post_jp = tran.post_jp.replace(self.主人公变量, '主角')
 
-        lst_ruby = self.re_ruby.findall(tran.post_jp)
-        if lst_ruby:
+        # 2. 替换Ruby注音标签（在保存src之前转换，避免脚本变量检查误报）
+        if self.替换ruby注音:
             tran.post_jp = self.re_ruby.sub(
                 lambda match: f"{match.group(1)}" if not match.group(2) else f"{match.group(1)}（{match.group(2)}）",
                 tran.post_jp)
-            #tran.post_jp = self.re_ruby.sub(r'【\1（\2）】', tran.post_jp)
 
-        pre_jp = self.preprocess_color_tags(tran.post_jp)
-        #print(pre_jp)
+        # 3. 保存src（Bug1修复：ruby转换后保存，避免检查脚本变量对ruby标签误报丢失）
+        tran.plugin_used[self.pname] = {'src': tran.post_jp}
+
+        # 4. 颜色代码预处理（\C[N]text\C[0] → {colorN: text}）
+        pre_jp = tran.post_jp
+        if self.替换颜色代码:
+            pre_jp = self.preprocess_color_tags(pre_jp)
+
+        # 5. 文本头尾分割（始终执行）
         tran.plugin_used[self.pname]['split'] = self.split_text_para(pre_jp)
-        pre_jp = tran.plugin_used[self.pname]['split'][1]
-        if self.替换rpg变量:
-            # 替换剩余控制符
-            for item in self.re_combined.findall(pre_jp):
-                if item.isspace():
-                    continue
-                # m = self.re_reserved.match(item)
-                matched = [False]
-                new_item = self.re_reserved.sub(lambda m: (matched.__setitem__(0, True) or ''.join(filter(None, m.groups()))),
-                                         item, 1)
 
-                #new_item = self.re_reserved.sub(lambda m: ''.join(filter(None, m.groups())), item, 1)
-                if not matched[0]:
-                    pre_jp = pre_jp.replace(item, '＠', 1)
-                else:
-                    pre_jp = pre_jp.replace(item, new_item, 1)
+        # 6. 如有替换开关开启，剥离头尾并处理控制符
+        if self.替换颜色代码 or self.替换其他控制符:
+            pre_jp = tran.plugin_used[self.pname]['split'][1]
+            if self.替换其他控制符:
+                # 将非保留控制符替换为＠占位符（Problem4修复：用re_reserved.search代替matched=[False]闭包）
+                for item in self.re_combined.findall(pre_jp):
+                    if item.isspace():
+                        continue
+                    m = self.re_reserved.search(item)
+                    if not m:
+                        pre_jp = pre_jp.replace(item, '＠', 1)
+                    else:
+                        new_item = ''.join(filter(None, m.groups()))
+                        pre_jp = pre_jp.replace(item, new_item, 1)
             tran.post_jp = pre_jp
 
         return tran
 
-    def get_middle_string(self, pre_jp):
-        re_color_cn = None
-        lst_color = None
-        if self.re_color.findall(pre_jp):
-            for sign in self.signs_list:
-                if not re.search(f"[{sign}]", pre_jp):
-                    lst_color = self.re_color.findall(pre_jp)
-                    pre_jp = self.re_color.sub(f"{sign[0]}\\2{sign[-1]}", pre_jp)
-                    re_color_cn = re.compile(rf"{sign[0]}(.+?){sign[-1]}", re.DOTALL)
-                    break
-        # 掐头去尾
-        s_head, pre_jp, s_tail = self.split_text_para(pre_jp)
-        return s_head, pre_jp, s_tail, re_color_cn, lst_color
+    @staticmethod
+    def _add_problem(problems: list, msg: str) -> None:
+        """将问题添加到有序列表中，避免重复（Problem5修复：替代set以保证输出顺序一致）。"""
+        if msg not in problems:
+            problems.append(msg)
 
     def after_src_processed(self, tran: CSentense) -> CSentense:
         """
@@ -320,88 +320,98 @@ class text_coder_rpg(GTextPlugin):
         :return: The modified CSentense.
         """
         tran_pre_jp = tran.plugin_used[self.pname]['src']
-        problem_list = set()
-        if tran.problem:
-            problem_list.add(tran.problem)
+        # Problem5修复：用有序列表代替set，确保问题输出顺序一致
+        problems = list(dict.fromkeys(tran.problem.split(", "))) if tran.problem else []
         s_head, s_middle, s_tail = tran.plugin_used[self.pname]['split']
-        tran.post_zh, missing = self.postprocess_color_tags(tran.post_zh, s_middle, tran_pre_jp)
-        problem_list.update(missing)
-        if self.替换rpg变量:
-            # 替换剩余控制符
-            s_middle = self.color_post_pattern.sub("【\\2】", s_middle)
+
+        # 颜色代码后处理（{colorN: text} → \C[N]...\C[0]）
+        if self.替换颜色代码:
+            tran.post_zh, missing = self.postprocess_color_tags(tran.post_zh, s_middle, tran_pre_jp)
+            for m in missing:
+                self._add_problem(problems, m)
+
+        # 还原其他控制符（＠ → 原始控制符）
+        if self.替换其他控制符:
+            s_middle_lookup = self.color_post_pattern.sub("【\\2】", s_middle)
             dic_values = {}
             if '@' in tran.post_zh and '@' not in tran_pre_jp:
                 tran.post_zh = tran.post_zh.replace("@", "＠")
-            lst_items = self.re_combined.findall(s_middle)
+            lst_items = self.re_combined.findall(s_middle_lookup)
             for item in lst_items:
                 if item.isspace():
                     continue
                 if item.strip() == self.主人公变量:
                     continue
-                m = self.re_reserved.search(item)
-                if not m:
+                m_r = self.re_reserved.search(item)
+                if not m_r:
                     if "＠" not in tran.post_zh:
-                        problem_list.add(f'脚本修复：丢失控制符{item}')
+                        self._add_problem(problems, f'脚本修复：丢失控制符{item}')
                     else:
                         tran.post_zh = tran.post_zh.replace("＠", item, 1)
                 else:
-                    dic_values["".join([i for i in m.groups() if i])] = m.group(0)
-            if self.主人公变量 and self.主人公变量 in tran_pre_jp:
-                if '主角' not in tran.post_zh:
-                    problem_list.add(f'脚本修复：丢失标签{self.主人公变量}')
-                else:
-                    tran.post_zh = tran.post_zh.replace('主角', self.主人公变量)
-            # 从长到短排序
-            dic_values = dict(sorted(dic_values.items(), key=lambda item: len(item[0]), reverse=True))
-
+                    dic_values["".join([i for i in m_r.groups() if i])] = m_r.group(0)
+            # 从长到短排序，避免短键误匹配长键
+            dic_values = dict(sorted(dic_values.items(), key=lambda x: len(x[0]), reverse=True))
             for k, v in dic_values.items():
                 if k not in tran.post_zh:
-                    problem_list.add(f'脚本修复：丢失标签{v}')
+                    self._add_problem(problems, f'脚本修复：丢失标签{v}')
                     continue
-
                 tran.post_zh = tran.post_zh.replace(k, v)
             if "＠" in tran.post_zh:
-                problem_list.add(f'脚本修复：多加控制符＠')
+                self._add_problem(problems, f'脚本修复：多加控制符＠')
             if '{color' in tran.post_zh:
-                problem_list.add(f'脚本修复：颜色标签未恢复')
-            # 恢复头尾
+                self._add_problem(problems, f'脚本修复：颜色标签未恢复')
+
+        # 还原主人公变量（始终执行，不受替换其他控制符开关影响）
+        if self.主人公变量 and self.主人公变量 in tran_pre_jp:
+            if '主角' not in tran.post_zh:
+                self._add_problem(problems, f'脚本修复：丢失标签{self.主人公变量}')
+            else:
+                tran.post_zh = tran.post_zh.replace('主角', self.主人公变量)
+
+        # 还原头尾（如有任一替换开关开启）
+        if self.替换颜色代码 or self.替换其他控制符:
             tran.post_zh = s_head + tran.post_zh + s_tail
 
-        if self.检查脚本变量:
-            count_pre_jp = Counter([i.lower().strip() for i in self.re_combined.findall(tran.plugin_used[self.pname]['src']) if i.strip()])
-            count_post_zh = Counter([i.lower().strip() for i in self.re_combined.findall(tran.post_zh) if i.strip()])
-            for i in set(count_pre_jp.keys()) - set(count_post_zh.keys()):
-                problem_list.add(f'脚本检查：丢失{i}')
-            for i in set(count_post_zh.keys()) - set(count_pre_jp.keys()):
-                problem_list.add(f'脚本检查：多加{i}')
-            for k in count_pre_jp.keys():
-                if count_pre_jp[k] != count_post_zh[k]:
-                    problem_list.add(f'脚本检查：标签数量错误{k} {count_pre_jp[k]}->{count_post_zh[k]}')
-                    #print(count_pre_jp, count_post_zh)
-
-
-        s1_match = self.re_bracket.findall(tran_pre_jp)
-
-        s2_match = self.re_bracket.findall(tran.post_zh)
-        if len(s2_match) != len(s1_match):
-            problem_list.add(f'中括号数量{len(s1_match)}->{len(s2_match)}')
-        elif self.检查中括号内容一致:
-            s1_not_found = [s1 for s1 in set(s1_match) if s1_match.count(s1) != s2_match.count(s1)]
-
-            if s1_not_found:
-                if sorted(s2_match) != sorted(s1_match):
-                    problem_list.add(f'中括号内容可能错误 {s1_not_found}')
-        if problem_list:
-            tran.problem = ", ".join(problem_list)
+        if problems:
+            tran.problem = ", ".join(problems)
         return tran
 
     def after_dst_processed(self, tran: CSentense) -> CSentense:
         """
         This method is called after the destination sentence is processed.
         在post_zh已经被恢复对话框和字典替换之后的处理。
+        检查脚本变量和中括号内容一致性在此处执行（对完整译文进行校验）。
         :param tran: The CSentense to be processed.
         :return: The modified CSentense.
         """
+        problems = list(dict.fromkeys(tran.problem.split(", "))) if tran.problem else []
+        tran_pre_jp = tran.plugin_used[self.pname]['src']
+
+        # 检查脚本变量（翻译前后控制符数量是否一致）
+        if self.检查脚本变量:
+            count_pre_jp = Counter([i.lower().strip() for i in self.re_combined.findall(tran_pre_jp) if i.strip()])
+            count_post_zh = Counter([i.lower().strip() for i in self.re_combined.findall(tran.post_zh) if i.strip()])
+            for i in set(count_pre_jp.keys()) - set(count_post_zh.keys()):
+                self._add_problem(problems, f'脚本检查：丢失{i}')
+            for i in set(count_post_zh.keys()) - set(count_pre_jp.keys()):
+                self._add_problem(problems, f'脚本检查：多加{i}')
+            for k in count_pre_jp.keys():
+                if count_pre_jp[k] != count_post_zh[k]:
+                    self._add_problem(problems, f'脚本检查：标签数量错误{k} {count_pre_jp[k]}->{count_post_zh[k]}')
+
+        # 检查中括号内容（Bug3修复：简化双重判断逻辑，直接比较排序后列表）
+        s1_match = self.re_bracket.findall(tran_pre_jp)
+        s2_match = self.re_bracket.findall(tran.post_zh)
+        if len(s2_match) != len(s1_match):
+            self._add_problem(problems, f'中括号数量{len(s1_match)}->{len(s2_match)}')
+        elif self.检查中括号内容一致:
+            if sorted(s2_match) != sorted(s1_match):
+                diff = [s for s in set(s1_match) if s1_match.count(s) != s2_match.count(s)]
+                self._add_problem(problems, f'中括号内容可能错误 {diff}')
+
+        if problems:
+            tran.problem = ", ".join(problems)
         return tran
 
     def gtp_final(self):
@@ -412,29 +422,213 @@ class text_coder_rpg(GTextPlugin):
         pass
 
 if __name__ == '__main__':
+    # ── 颜色控制符 ──────────────────────────────────────────────────
+    GREEN  = "\033[92m"
+    RED    = "\033[91m"
+    YELLOW = "\033[93m"
+    RESET  = "\033[0m"
+    PASS   = f"{GREEN}[PASS]{RESET}"
+    FAIL   = f"{RED}[FAIL]{RESET}"
+    WARN   = f"{YELLOW}[WARN]{RESET}"
+
     coder = text_coder_rpg()
-    coder.gtp_init({'Core': {}, 'Settings': {}}, {})
-    lines = {
-    #    "その艶やかな姿に\\N[3]の獣心がそそられた。\n\\N[3]は少女の動きに合わせて腰を突き上げはじめる。",
-        "「今日は温泉を一人で楽しみたい気分。\nあとは言わなくてもわかりますね\\v[302]」": "今天想一个人享受温泉。\n剩下的不用我说你也明白吧\n[302]",
-    }
-    for pre_line, post_line in lines.items():
-        s=coder.before_src_processed(CSentense(pre_line))
-        # , s.post_jp, s.pre_zh, s.post_zh
-        print('pre_jp', s.pre_jp)
-        print('post_jp', json.dumps(s.post_jp, ensure_ascii=False))
-        if post_line is None:
-            post_line = s.post_jp
-        print("---->")
-        s.pre_zh = post_line
-        s.post_zh = post_line
+    coder.gtp_init({'Core': {}, 'Settings': {'主人公变量': '\\s[9]'}}, {})
+
+    def run_test(name: str, pre_jp: str, simulated_zh: str,
+                 expect_post_zh: str = None,
+                 expect_problem_contains: str = None,
+                 expect_no_problem: bool = False) -> bool:
+        """
+        运行单条测试用例，返回是否通过。
+          name                  : 测试名称
+          pre_jp                : 原始日文（含控制符）
+          simulated_zh          : 模拟 AI 输出的译文
+          expect_post_zh        : 期望最终译文（None=不检查）
+          expect_problem_contains: 期望 problem 包含的关键字（None=不检查）
+          expect_no_problem     : 为 True 时期望 problem 为空
+        """
+        s = CSentense(pre_jp)
+        s = coder.before_src_processed(s)
+        ai_input = s.post_jp              # 实际发送给 AI 的文本
+        s.pre_zh = simulated_zh
+        s.post_zh = simulated_zh
         s = coder.before_dst_processed(s)
-        print('pre_jp', s.pre_jp)
-        print('post_jp', s.post_jp)
-        print('pre_zh', s.pre_zh)
-        print('post_zh', s.post_zh)
-        print(s.problem)
-        if s.post_zh == pre_line:
-            print("Success!!\n")
+        s = coder.after_dst_processed(s)
+
+        ok_zh = (expect_post_zh is None) or (s.post_zh == expect_post_zh)
+        if expect_no_problem:
+            ok_prob = not s.problem
+        elif expect_problem_contains:
+            ok_prob = bool(s.problem and expect_problem_contains in s.problem)
         else:
-            print("Failed!!\n")
+            ok_prob = True
+
+        passed = ok_zh and ok_prob
+        print(f"  {PASS if passed else FAIL}  {name}")
+        if not ok_zh:
+            print(f"         期望译文 : {repr(expect_post_zh)}")
+            print(f"         实际译文 : {repr(s.post_zh)}")
+        if not ok_prob:
+            if expect_no_problem:
+                print(f"         期望无problem，实际 : {repr(s.problem)}")
+            else:
+                print(f"         期望problem含 '{expect_problem_contains}'，实际 : {repr(s.problem)}")
+        if s.problem:
+            print(f"    {WARN} problem : {s.problem}")
+        print(f"         AI输入 : {repr(ai_input)}")
+        print(f"         最终输出: {repr(s.post_zh)}")
+        print()
+        return passed
+
+    # ════════════════════════════════════════════════════════════════
+    print("═" * 62)
+    print("   text_coder_rpg  测试套件")
+    print("═" * 62 + "\n")
+
+    results = []
+
+    # ── 1. 基础变量还原：\v[N] 在文本内 ─────────────────────────
+    results.append(run_test(
+        name="[基础-1] \\v[302] 变量在引号内正确还原",
+        pre_jp="「あとは言わなくてもわかりますね\\v[302]」",
+        simulated_zh="「剩下的不用我说你也明白吧V302」",
+        expect_post_zh="「剩下的不用我说你也明白吧\\v[302]」",
+        expect_no_problem=True,
+    ))
+
+    # ── 2. 长键优先：\N[3] 和 \N[30] 不误匹配 ───────────────────
+    results.append(run_test(
+        name="[基础-2] 长键优先 \\N[3] vs \\N[30]",
+        pre_jp="\\N[3]の言葉に\\N[30]は驚いた。",
+        simulated_zh="听到N3的话，N30感到很惊讶。",
+        expect_post_zh="听到\\N[3]的话，\\N[30]感到很惊讶。",
+        expect_no_problem=True,
+    ))
+
+    # ── 3. 非保留控制符 ＠ 还原 ──────────────────────────────────
+    results.append(run_test(
+        name="[基础-3] \\! 控制符经＠还原",
+        pre_jp="\\!急いで！\\!",
+        simulated_zh="＠快点！＠",
+        expect_post_zh="\\!快点！\\!",
+        expect_no_problem=True,
+    ))
+
+    # ── 4. 头尾控制符剥离与还原 ──────────────────────────────────
+    results.append(run_test(
+        name="[基础-4] 头尾 \\> \\< 剥离后正确还原",
+        pre_jp="\\>急げ！\\<",
+        simulated_zh="快！",
+        expect_post_zh="\\>快！\\<",
+        expect_no_problem=True,
+    ))
+
+    # ── 5. 多控制符顺序正确还原 ──────────────────────────────────
+    results.append(run_test(
+        name="[基础-5] 多个 \\{ \\} 按顺序还原",
+        pre_jp="\\{大きく\\}普通\\{また大きく\\}",
+        simulated_zh="＠大＠普通＠再大＠",
+        expect_post_zh="\\{大\\}普通\\{再大\\}",
+        expect_no_problem=True,
+    ))
+
+    # ── 6. 引号包裹文本头尾保留 ──────────────────────────────────
+    results.append(run_test(
+        name="[基础-6] 引号包裹时头尾控制符保留",
+        pre_jp="\"\\!今すぐ行け！\\!\"",
+        simulated_zh="\"＠马上走！＠\"",
+        expect_post_zh="\"\\!马上走！\\!\"",
+        expect_no_problem=True,
+    ))
+
+    # ── 7. 主人公变量替换与还原 ──────────────────────────────────
+    results.append(run_test(
+        name="[主人公-1] \\s[9] 替换为'主角'再还原",
+        pre_jp="\\s[9]は立ち上がった。",
+        simulated_zh="主角站了起来。",
+        expect_post_zh="\\s[9]站了起来。",
+        expect_no_problem=True,
+    ))
+
+    # ── 8. 主人公变量丢失时有 problem ────────────────────────────
+    results.append(run_test(
+        name="[主人公-2] '主角'被AI丢失时报problem",
+        pre_jp="\\s[9]は叫んだ。",
+        simulated_zh="大喊道。",
+        expect_problem_contains="丢失标签",
+    ))
+
+    # ── 9. Bug1修复：Ruby注音翻译后不误报变量丢失 ───────────────
+    results.append(run_test(
+        name="[Bug1-1] Ruby正常展开翻译后无误报",
+        pre_jp="\\r[主人公,しゅじんこう]が叫んだ。",
+        simulated_zh="主人公（しゅじんこう）大喊道。",
+        expect_no_problem=True,
+    ))
+
+    # ── 10. Bug1：Ruby内容被AI完全丢失时应有提示 ─────────────────
+    results.append(run_test(
+        name="[Bug1-2] Ruby展开内容被AI丢失时有脚本检查提示",
+        pre_jp="\\r[勇者,ゆうしゃ]は剣を抜いた。",
+        simulated_zh="拔出了剑。",   # ruby展开的"勇者（ゆうしゃ）"被完全删掉
+        expect_problem_contains="脚本检查",
+    ))
+
+    # ── 11. 颜色标签预处理与还原 ─────────────────────────────────
+    results.append(run_test(
+        name="[颜色-1] \\C[3]...\\C[0] 正确预处理并还原",
+        pre_jp="\\C[3]重要なお知らせ\\C[0]です。",
+        simulated_zh="{color3: 重要通知}。",
+        expect_post_zh="\\C[3]重要通知\\C[0]。",
+        expect_no_problem=True,
+    ))
+
+    # ── 12. 颜色标签被 AI 丢失时有 problem ───────────────────────
+    results.append(run_test(
+        name="[颜色-2] 颜色标签被AI丢失时报problem",
+        pre_jp="\\C[3]重要なお知らせ\\C[0]です。",
+        simulated_zh="重要通知。",
+        expect_problem_contains="颜色",
+    ))
+
+    # ── 13. Bug3修复：中括号数量不一致检测 ──────────────────────
+    results.append(run_test(
+        name="[Bug3-1] 中括号数量不一致时报problem",
+        pre_jp="選択肢は[A]か[B]です。",
+        simulated_zh="选项是[A]。",
+        expect_problem_contains="中括号数量",
+    ))
+
+    # ── 14. Bug3修复：中括号数量内容均一致时无 problem ───────────
+    results.append(run_test(
+        name="[Bug3-2] 中括号数量内容均正确时无problem",
+        pre_jp="選択肢は[A]か[B]です。",
+        simulated_zh="选项是[A]还是[B]。",
+        expect_no_problem=True,
+    ))
+
+    # ── 15. 控制符被 AI 完全丢失时检测 ──────────────────────────
+    results.append(run_test(
+        name="[检查-1] 控制符被AI丢失时报丢失problem",
+        pre_jp="\\!早く来て！\\!",
+        simulated_zh="快来！",
+        expect_problem_contains="丢失控制符",
+    ))
+
+    # ── 16. 综合场景：主人公+变量+控制符混合 ─────────────────────
+    results.append(run_test(
+        name="[综合] 主人公+\\N[N]+控制符混合场景",
+        pre_jp="\\s[9]は\\N[3]に\\!叫んだ\\!。",
+        simulated_zh="主角向N3＠大喊＠。",
+        expect_post_zh="\\s[9]向\\N[3]\\!大喊\\!。",
+        expect_no_problem=True,
+    ))
+
+    # ── 汇总 ─────────────────────────────────────────────────────
+    total  = len(results)
+    passed = sum(results)
+    color  = GREEN if passed == total else RED
+    print("═" * 62)
+    print(f"   结果：{color}{passed}/{total} 通过{RESET}")
+    print("═" * 62)
+
